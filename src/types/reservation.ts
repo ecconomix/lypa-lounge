@@ -4,4 +4,5 @@ export type Reservation = {
   startTime: string
   endTime: string
   description?: string
+  nameOrApartment?: string
 }

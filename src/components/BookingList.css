@@ -55,6 +55,7 @@
   font-variant-numeric: tabular-nums;
 }
 
+.booking-owner,
 .booking-description {
   margin: 0.25rem 0 0;
   color: #646a60;

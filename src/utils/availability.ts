@@ -5,9 +5,23 @@ export type Availability = 'AVAILABLE' | 'PARTIALLY_BOOKED' | 'FULLY_BOOKED'
 export const OPENING_TIME = '08:00'
 export const CLOSING_TIME = '22:00'
 
-function toMinutes(time: string): number {
+export function toMinutes(time: string): number {
   const [hours, minutes] = time.split(':').map(Number)
   return hours * 60 + minutes
+}
+
+export function hasBookingConflict(
+  date: string,
+  startTime: string,
+  endTime: string,
+  reservations: readonly Reservation[],
+): boolean {
+  return reservations.some(
+    (reservation) =>
+      reservation.date === date &&
+      toMinutes(startTime) < toMinutes(reservation.endTime) &&
+      toMinutes(endTime) > toMinutes(reservation.startTime),
+  )
 }
 
 export function getDailyAvailability(
