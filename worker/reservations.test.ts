@@ -83,6 +83,94 @@ async function count() {
   ).first<{ count: number }>())!.count
 }
 
+interface StoredReservation {
+  id: string
+  date: string
+  startTime: string
+  endTime: string
+  nameOrApartment: string
+  description: string | null
+  status: 'active' | 'cancelled'
+  key: string
+  createdAt: number
+  updatedAt: number
+}
+
+// Compare actual committed rows with every success and with availability.
+// Promise.all exercises contention; assertions never depend on execution order.
+async function verifyConcurrentState(
+  responses: Response[],
+  keys: string[],
+  expectedConflict = conflict,
+) {
+  const { results: rows } = await env.DB.prepare(
+    `SELECT id, date, start_time AS startTime, end_time AS endTime,
+            name_or_apartment AS nameOrApartment, description, status,
+            idempotency_key AS key, created_at AS createdAt, updated_at AS updatedAt
+     FROM reservations ORDER BY date, start_time`,
+  ).all<StoredReservation>()
+  expect(new Set(rows.map((row) => row.id)).size).toBe(rows.length)
+  expect(new Set(rows.map((row) => row.key)).size).toBe(rows.length)
+  const active = rows.filter((row) => row.status === 'active')
+  const publicRow = ({
+    id,
+    date,
+    startTime,
+    endTime,
+    nameOrApartment,
+    description,
+  }: StoredReservation) => ({
+    id,
+    date,
+    startTime,
+    endTime,
+    nameOrApartment,
+    description,
+  })
+  for (const [index, row] of active.entries()) {
+    expect(row.startTime >= '08:00' && row.endTime <= '22:00').toBe(true)
+    expect(row.startTime < row.endTime).toBe(true)
+    expect(row.startTime).toMatch(/^\d{2}:[03]0$/)
+    expect(row.endTime).toMatch(/^\d{2}:[03]0$/)
+    expect(row.nameOrApartment.trim().length).toBeGreaterThan(0)
+    expect(row.createdAt).toBe(1792314000)
+    expect(row.updatedAt).toBe(row.createdAt)
+    for (const other of active.slice(index + 1)) {
+      if (row.date === other.date)
+        expect(
+          row.startTime < other.endTime && row.endTime > other.startTime,
+        ).toBe(false)
+    }
+  }
+  const successfulIds = new Set<string>()
+  for (const [index, response] of responses.entries()) {
+    expect([201, 409]).toContain(response.status)
+    const body = await response.clone().json()
+    const stored = rows.find((row) => row.key === keys[index])
+    if (response.status === 201) {
+      expect(stored).toBeDefined()
+      expect(body).toEqual({ reservation: publicRow(stored!) })
+      successfulIds.add(stored!.id)
+    } else {
+      expect(body).toEqual(expectedConflict)
+      if (expectedConflict === conflict) expect(stored).toBeUndefined()
+    }
+  }
+  // No partial/unreported inserts, even when many requests share one key.
+  expect(active.map((row) => row.id).sort()).toEqual([...successfulIds].sort())
+  const availability = await worker.fetch(
+    new Request(
+      'http://localhost/api/availability?from=2026-10-18&to=2026-11-17',
+    ),
+    env,
+  )
+  expect(availability.status).toBe(200)
+  expect(await availability.json()).toEqual({
+    reservations: active.map(publicRow),
+  })
+  return rows
+}
+
 test('creates persistent public reservation, UUID, active status and UTC audit timestamps; availability reflects it', async () => {
   const key = crypto.randomUUID()
   const response = await request(payload, key)
@@ -254,6 +342,8 @@ for (const [now, date, startTime, status] of [
   ['2026-03-28T22:30:00Z', '2026-03-29', '08:00', 201],
   ['2026-03-29T05:00:00Z', '2026-03-29', '08:00', 201],
   ['2026-03-29T05:00:01Z', '2026-03-29', '08:00', 400],
+  ['2026-03-01T22:00:00Z', '2026-04-01', '08:00', 201],
+  ['2026-03-01T22:00:00Z', '2026-04-02', '08:00', 400],
   ['2026-10-25T06:00:00Z', '2026-10-25', '08:00', 201],
   ['2026-10-25T06:00:01Z', '2026-10-25', '08:00', 400],
   ['2026-12-31T22:00:00Z', '2027-01-31', '08:00', 201],
@@ -343,11 +433,14 @@ test('concurrent identical keys create one row', async () => {
   expect(responses.map((response) => response.status)).toEqual(
     Array(8).fill(201),
   )
-  const bodies = await Promise.all(responses.map((response) => response.json()))
+  const bodies = await Promise.all(
+    responses.map((response) => response.clone().json()),
+  )
   expect(
     bodies.every((body) => JSON.stringify(body) === JSON.stringify(bodies[0])),
   ).toBe(true)
   expect(await count()).toBe(1)
+  await verifyConcurrentState(responses, Array(8).fill(key))
 })
 test('concurrent different payloads sharing key resolve to one winner', async () => {
   const key = crypto.randomUUID()
@@ -359,21 +452,145 @@ test('concurrent different payloads sharing key resolve to one winner', async ()
     201, 409,
   ])
   expect(
-    await responses.find((response) => response.status === 409)!.json(),
+    await responses
+      .find((response) => response.status === 409)!
+      .clone()
+      .json(),
   ).toEqual(keyConflict)
   expect(await count()).toBe(1)
+  await verifyConcurrentState(responses, [key, key], keyConflict)
 })
-test('concurrent overlapping requests with distinct keys create one row', async () => {
+test('concurrent same interval from 20 different users creates one active row', async () => {
+  const keys = Array.from({ length: 20 }, () => crypto.randomUUID())
   const responses = await Promise.all(
-    Array.from({ length: 8 }, () => request()),
+    keys.map((key, index) =>
+      request(
+        {
+          ...payload,
+          nameOrApartment: `Квартира ${index + 1}`,
+        },
+        key,
+      ),
+    ),
   )
   expect(responses.filter((response) => response.status === 201)).toHaveLength(
     1,
   )
   expect(responses.filter((response) => response.status === 409)).toHaveLength(
-    7,
+    19,
   )
   expect(await count()).toBe(1)
+  await verifyConcurrentState(responses, keys)
+})
+
+test('concurrent partially overlapping intervals have one unspecified winner', async () => {
+  const intervals = [
+    ['18:00', '20:00'],
+    ['19:00', '21:00'],
+    ['17:30', '19:30'],
+  ]
+  const keys = intervals.map(() => crypto.randomUUID())
+  const responses = await Promise.all(
+    intervals.map(([startTime, endTime], index) =>
+      request({ ...payload, startTime, endTime }, keys[index]),
+    ),
+  )
+  expect(responses.map((response) => response.status).sort()).toEqual([
+    201, 409, 409,
+  ])
+  expect(await verifyConcurrentState(responses, keys)).toHaveLength(1)
+})
+
+test('concurrent adjacent intervals all succeed without false conflicts', async () => {
+  const intervals = [
+    ['18:00', '19:00'],
+    ['19:00', '20:00'],
+    ['20:00', '21:00'],
+  ]
+  const keys = intervals.map(() => crypto.randomUUID())
+  const responses = await Promise.all(
+    intervals.map(([startTime, endTime], index) =>
+      request({ ...payload, startTime, endTime }, keys[index]),
+    ),
+  )
+  expect(responses.map((response) => response.status)).toEqual([201, 201, 201])
+  expect(await verifyConcurrentState(responses, keys)).toHaveLength(3)
+})
+
+test('concurrent full-day bookings on independent dates all succeed', async () => {
+  // Today, tomorrow and the inclusive 30-day limit, spanning autumn DST.
+  const dates = ['2026-10-18', '2026-10-19', '2026-11-17']
+  const keys = dates.map(() => crypto.randomUUID())
+  const responses = await Promise.all(
+    dates.map((date, index) =>
+      request(
+        {
+          ...payload,
+          date,
+          startTime: date === '2026-10-18' ? '12:00' : '08:00',
+          endTime: '22:00',
+        },
+        keys[index],
+      ),
+    ),
+  )
+  expect(responses.map((response) => response.status)).toEqual([201, 201, 201])
+  expect(await verifyConcurrentState(responses, keys)).toHaveLength(3)
+})
+
+test('concurrent bookings ignore cancelled intervals and retain consumed keys', async () => {
+  const cancelledKey = crypto.randomUUID()
+  expect((await request(payload, cancelledKey)).status).toBe(201)
+  await env.DB.prepare("UPDATE reservations SET status = 'cancelled'").run()
+  const keys = Array.from({ length: 8 }, () => crypto.randomUUID())
+  const responses = await Promise.all(keys.map((key) => request(payload, key)))
+  expect(responses.map((response) => response.status).sort()).toEqual([
+    201,
+    ...Array(7).fill(409),
+  ])
+  const rows = await verifyConcurrentState(responses, keys)
+  expect(rows).toHaveLength(2)
+  expect(rows.find((row) => row.key === cancelledKey)?.status).toBe('cancelled')
+  const replay = await request(payload, cancelledKey)
+  expect(replay.status).toBe(201)
+  expect(
+    ((await replay.json()) as { reservation: { id: string } }).reservation.id,
+  ).toBe(rows.find((row) => row.key === cancelledKey)!.id)
+  expect(await count()).toBe(2)
+})
+
+test('concurrent stress: 50 mixed intervals preserve database and availability invariants', async () => {
+  const intervals = [
+    ['08:00', '10:00'],
+    ['09:30', '11:30'],
+    ['10:00', '12:00'],
+    ['12:00', '12:30'],
+    ['12:30', '13:00'],
+    ['14:00', '17:00'],
+    ['16:30', '18:00'],
+    ['18:00', '20:00'],
+    ['19:00', '21:00'],
+    ['20:00', '22:00'],
+  ]
+  const keys = Array.from({ length: 50 }, () => crypto.randomUUID())
+  const responses = await Promise.all(
+    keys.map((key, index) => {
+      const [startTime, endTime] = intervals[index % intervals.length]
+      return request(
+        {
+          ...payload,
+          startTime,
+          endTime,
+          nameOrApartment: `Квартира ${(index % 24) + 1}`,
+        },
+        key,
+      )
+    }),
+  )
+  const rows = await verifyConcurrentState(responses, keys)
+  expect(rows.length).toBeGreaterThan(1)
+  expect(rows.length).toBeLessThanOrEqual(intervals.length)
+  expect(responses.some((response) => response.status === 409)).toBe(true)
 })
 test('failed conflict does not consume a key', async () => {
   await request()
@@ -424,4 +641,27 @@ for (const stage of ['lookup', 'write'])
       error: { code: 'INTERNAL_ERROR', message: 'Internal server error' },
     })
     expect(log).toHaveBeenCalledWith('Worker request failed', failure)
+    expect(await count()).toBe(0)
   })
+
+test('actual D1 write failure returns a safe 500 without consuming the key', async () => {
+  const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+  const key = crypto.randomUUID()
+  await env.DB.prepare(
+    `CREATE TRIGGER reject_test_insert BEFORE INSERT ON reservations
+    BEGIN SELECT RAISE(ABORT, 'secret database detail'); END`,
+  ).run()
+  try {
+    const response = await request(payload, key)
+    expect(response.status).toBe(500)
+    expect(await response.json()).toEqual({
+      error: { code: 'INTERNAL_ERROR', message: 'Internal server error' },
+    })
+    expect(log).toHaveBeenCalledTimes(1)
+    expect(await count()).toBe(0)
+  } finally {
+    await env.DB.prepare('DROP TRIGGER reject_test_insert').run()
+  }
+  expect((await request(payload, key)).status).toBe(201)
+  expect(await count()).toBe(1)
+})
