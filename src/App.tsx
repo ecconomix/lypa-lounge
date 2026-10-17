@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import Calendar from './components/Calendar'
 import BookingList from './components/BookingList'
+import BookingForm from './components/BookingForm'
 import { createMockReservations } from './data/mockReservations'
 import { createDateRange, getKyivToday } from './utils/calendar'
 import './App.css'
@@ -8,7 +9,9 @@ import './App.css'
 function App() {
   const [today, setToday] = useState(() => getKyivToday())
   const [selectedDate, setSelectedDate] = useState(today)
-  const reservations = createMockReservations(today)
+  const [reservations, setReservations] = useState(() =>
+    createMockReservations(today),
+  )
 
   useEffect(() => {
     const refreshToday = () => {
@@ -45,6 +48,13 @@ function App() {
         reservations={reservations}
       />
       <BookingList selectedDate={selectedDate} reservations={reservations} />
+      <BookingForm
+        selectedDate={selectedDate}
+        reservations={reservations}
+        onBookingCreated={(reservation) =>
+          setReservations((current) => [...current, reservation])
+        }
+      />
     </main>
   )
 }

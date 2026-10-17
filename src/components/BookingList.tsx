@@ -44,6 +44,9 @@ export default function BookingList({
                   {' – '}
                   <time dateTime={booking.endTime}>{booking.endTime}</time>
                 </p>
+                {booking.nameOrApartment?.trim() && (
+                  <p className="booking-owner">{booking.nameOrApartment}</p>
+                )}
                 {booking.description && (
                   <p className="booking-description">{booking.description}</p>
                 )}

@@ -1,0 +1,152 @@
+.booking-form {
+  margin-top: 2rem;
+  padding: 1rem;
+  border: 1px solid #d6d9cf;
+  border-radius: 1rem;
+  background: #fffefa;
+}
+
+.booking-form h2 {
+  margin: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.booking-form-date {
+  display: block;
+  margin: 0.5rem 0 1rem;
+  color: #646a60;
+  font-size: 1rem;
+  font-weight: 400;
+}
+
+.booking-form-date::first-letter {
+  text-transform: uppercase;
+}
+
+.booking-form form,
+.booking-form-times,
+.booking-form label {
+  display: grid;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.booking-form form {
+  gap: 1rem;
+}
+
+.booking-form-times {
+  gap: 1rem;
+}
+
+.booking-form label {
+  font-weight: 600;
+}
+
+.booking-form input,
+.booking-form select {
+  width: 100%;
+  min-width: 0;
+  min-height: 2.75rem;
+  padding: 0.625rem 0.75rem;
+  border: 1px solid #bac5b6;
+  border-radius: 0.5rem;
+  background: #fffefa;
+  color: #303c30;
+  font: inherit;
+  font-weight: 400;
+}
+
+.booking-form select {
+  appearance: none;
+  padding-right: 2.5rem;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23646a60' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+}
+
+.booking-form select:disabled {
+  background-color: #eeeee8;
+  color: #646a60;
+}
+
+.booking-form [aria-invalid='true'] {
+  border-color: #953d30;
+  box-shadow: inset 0 0 0 2px #953d30;
+}
+
+.booking-form input:focus-visible,
+.booking-form select:focus-visible,
+.booking-form button:focus-visible {
+  outline: 3px solid #335b3b;
+  outline-offset: 2px;
+}
+
+.booking-form-help,
+.booking-form-empty {
+  margin: 0;
+  color: #646a60;
+}
+
+.booking-form-help {
+  font-size: 0.875rem;
+}
+
+.booking-form label + .booking-form-help {
+  margin-top: -0.5rem;
+}
+
+.booking-form button {
+  min-height: 2.75rem;
+  padding: 0.625rem 1rem;
+  border: 1px solid #335b3b;
+  border-radius: 0.75rem;
+  background: #335b3b;
+  color: #fffefa;
+  cursor: pointer;
+}
+
+.booking-form-success,
+.booking-form-error {
+  margin: 0 0 1rem;
+  padding: 0.75rem;
+  border-radius: 0.5rem;
+  overflow-wrap: anywhere;
+}
+
+.booking-form-success {
+  background: #e4eddf;
+  color: #335b3b;
+}
+
+.booking-form-error {
+  background: #f5e5df;
+  color: #953d30;
+}
+
+.booking-form-field-error {
+  margin: -0.5rem 0 0;
+  color: #953d30;
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+
+@media (hover: hover) {
+  .booking-form button:hover {
+    background: #28472e;
+  }
+}
+
+@media (min-width: 480px) {
+  .booking-form-times {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (forced-colors: active) {
+  .booking-form select {
+    appearance: auto;
+    background-image: none;
+  }
+}

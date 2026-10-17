@@ -190,7 +190,7 @@ export default function Calendar({
           </button>
         </div>
       </div>
-      <p id="calendar-help" className="calendar-help">
+      <div id="calendar-help" className="calendar-help">
         <p> Доступні дати на 30 днів уперед. </p>
         <p>
           Години роботи: {OPENING_TIME}–{CLOSING_TIME}.
@@ -199,7 +199,7 @@ export default function Calendar({
           На клавіатурі: стрілки вліво та вправо переміщують фокус, Home — на
           сьогодні, End — на останню дату. Enter або пробіл обирають дату.
         </span>
-      </p>
+      </div>
       <div
         id="calendar-days"
         className="calendar-days"
