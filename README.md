@@ -31,8 +31,8 @@ frontend API integration are not implemented yet.
   binding `DB` for `lypa-lounge-db`. The all-zero database ID is a local-only
   placeholder, not a provisioned resource.
 - `migrations/0001_create_reservations.sql` — initial reservations table.
-- `worker/tsconfig.json` — separate strict backend TypeScript configuration,
-  discovered automatically by editors for files in `worker/`.
+- `worker/tsconfig.json` — editor-discovered project references for production
+  Worker types (`tsconfig.worker.json`) and test types (`tsconfig.test.json`).
 - `.wrangler/` — ignored generated runtime types and local database state.
 
 Wrangler is the only added direct dependency (development only); there is no ORM

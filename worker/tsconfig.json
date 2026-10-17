@@ -1,21 +1,11 @@
 {
-  "compilerOptions": {
-    "target": "ES2023",
-    "lib": ["ES2023"],
-    "module": "ESNext",
-    "moduleResolution": "bundler",
-    "types": ["../.wrangler/worker-configuration.d.ts"],
-    "strict": true,
-    "skipLibCheck": true,
-    "verbatimModuleSyntax": true,
-    "moduleDetection": "force",
-    "noEmit": true,
-    "allowImportingTsExtensions": true,
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "erasableSyntaxOnly": true,
-    "noFallthroughCasesInSwitch": true
-  },
-  "include": ["."],
-  "exclude": ["**/*.test.ts"]
+  "files": [],
+  "references": [
+    {
+      "path": "./tsconfig.worker.json"
+    },
+    {
+      "path": "./tsconfig.test.json"
+    }
+  ]
 }

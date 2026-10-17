@@ -1,5 +1,5 @@
 {
-  "extends": "./tsconfig.json",
+  "extends": "./tsconfig.worker.json",
   "compilerOptions": {
     "types": ["../.wrangler/worker-configuration.d.ts", "node"]
   },
