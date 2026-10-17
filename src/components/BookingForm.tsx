@@ -99,6 +99,8 @@ export default function BookingForm({
         description: description.trim() || undefined,
       })
       setTimes({ date: selectedDate, start: '', end: '' })
+      setNameOrApartment('')
+      setDescription('')
       setSuccess(true)
     } finally {
       // Hold the guard until React has processed this synchronous submission.
@@ -123,7 +125,17 @@ export default function BookingForm({
       </h2>
       <div role="status" aria-atomic="true">
         {success && (
-          <p className="booking-form-success">Бронювання успішно створено.</p>
+          <div className="booking-form-success">
+            <span>Бронювання успішно створено.</span>
+            <button
+              type="button"
+              className="booking-form-dismiss"
+              aria-label="Закрити повідомлення про успішне бронювання"
+              onClick={() => setSuccess(false)}
+            >
+              <span aria-hidden="true">×</span>
+            </button>
+          </div>
         )}
       </div>
       <div id="booking-form-error" role="alert" aria-atomic="true">

@@ -97,7 +97,7 @@
   margin-top: -0.5rem;
 }
 
-.booking-form button {
+.booking-form button[type='submit'] {
   min-height: 2.75rem;
   padding: 0.625rem 1rem;
   border: 1px solid #335b3b;
@@ -116,8 +116,25 @@
 }
 
 .booking-form-success {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
   background: #e4eddf;
   color: #335b3b;
+}
+
+.booking-form-dismiss {
+  flex-shrink: 0;
+  width: 2.75rem;
+  min-height: 2.75rem;
+  padding: 0;
+  border: 0;
+  border-radius: 0.5rem;
+  background: transparent;
+  color: inherit;
+  font-size: 1.5rem;
+  cursor: pointer;
 }
 
 .booking-form-error {
@@ -133,7 +150,7 @@
 }
 
 @media (hover: hover) {
-  .booking-form button:hover {
+  .booking-form button[type='submit']:hover {
     background: #28472e;
   }
 }
