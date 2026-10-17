@@ -1,11 +1,31 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Calendar from './components/Calendar'
-import { getKyivToday } from './utils/calendar'
+import { createDateRange, getKyivToday } from './utils/calendar'
 import './App.css'
 
 function App() {
-  const [today] = useState(() => getKyivToday())
+  const [today, setToday] = useState(() => getKyivToday())
   const [selectedDate, setSelectedDate] = useState(today)
+
+  useEffect(() => {
+    const refreshToday = () => {
+      if (document.visibilityState !== 'visible') return
+
+      const nextToday = getKyivToday()
+      if (nextToday === today) return
+
+      const availableDates = createDateRange(nextToday)
+      setToday(nextToday)
+      setSelectedDate((selected) => availableDates.includes(selected) ? selected : nextToday)
+    }
+
+    document.addEventListener('visibilitychange', refreshToday)
+    window.addEventListener('focus', refreshToday)
+    return () => {
+      document.removeEventListener('visibilitychange', refreshToday)
+      window.removeEventListener('focus', refreshToday)
+    }
+  }, [today])
 
   return (
     <main className="app">
