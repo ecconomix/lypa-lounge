@@ -1,10 +1,15 @@
+import { admin, type AdminEnv } from './admin.ts'
 import { availability } from './availability.ts'
 import { reservations } from './reservations.ts'
 
 export default {
-  async fetch(request, env): Promise<Response> {
+  async fetch(request: Request, env: Env & AdminEnv): Promise<Response> {
     try {
       const { pathname } = new URL(request.url)
+
+      if (pathname === '/api/admin' || pathname.startsWith('/api/admin/')) {
+        return await admin(request, env)
+      }
 
       if (pathname === '/api/reservations') {
         return await reservations(request, env.DB)

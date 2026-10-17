@@ -1,0 +1,8 @@
+.admin-panel {
+  max-width: 28rem;
+  margin-inline: auto;
+}
+
+.admin-panel form p {
+  margin: 0;
+}
