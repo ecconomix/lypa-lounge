@@ -241,6 +241,30 @@ including concurrent requests. No remote resources or deployment are required.
 The API has no authentication/rate limiting in this MVP; keys identify retries,
 not user identities. The frontend continues to use its existing mocks.
 
+### Concurrency verification (M2.4)
+
+`worker/reservations.test.ts` reuses the ephemeral local D1 setup and migration.
+It verifies 20 competing users on one interval, partial overlaps, three adjacent
+slots, independent dates, identical and conflicting concurrent idempotency keys,
+and contention over a cancelled interval. A bounded 50-request stress test mixes
+overlapping, adjacent, and minimum-duration slots. Tests query committed D1 rows
+for overlap, ID/key uniqueness, and unreported inserts, and compare availability
+with the final active rows. A real local D1 write failure verifies a generic 500,
+no partial row, and subsequent reuse of the unconsumed key. Existing Kyiv clock,
+DST, full-day, and instant-boundary cases are retained; spring DST booking-window
+regressions check the inclusive 30-day limit.
+
+```sh
+npm test
+npm test -- worker/reservations.test.ts -t concurrent
+```
+
+These tests use `Promise.all` without sleeps or assumptions about which request
+wins. They exercise contention and invariants, not guaranteed simultaneous
+execution or production load/latency. Overlap prevention depends on every writer
+using the atomic conditional insert described above; direct SQL can bypass it.
+Tests disable persistence and remote bindings and do not access production D1.
+
 ### Reservation storage conventions
 
 - `id` is a nonempty application-generated text identifier. `idempotency_key` is
