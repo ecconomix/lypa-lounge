@@ -45,7 +45,7 @@ Before completing a task:
 - Run npm run format after implementation and before the final build and lint checks
 - Run npm run build
 - Run npm run lint
-- Run npm run typecheck:worker for backend changes
+- Run npm run typecheck after implementation to check frontend, Vite config, and Worker TypeScript types
 - Verify the acceptance criteria
 - Summarize changed files
 - Report any known limitations

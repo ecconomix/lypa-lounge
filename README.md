@@ -31,7 +31,8 @@ frontend API integration is implemented yet.
   binding `DB` for `lypa-lounge-db`. The all-zero database ID is a local-only
   placeholder, not a provisioned resource.
 - `migrations/0001_create_reservations.sql` — initial reservations table.
-- `tsconfig.worker.json` — separate strict backend TypeScript configuration.
+- `worker/tsconfig.json` — separate strict backend TypeScript configuration,
+  discovered automatically by editors for files in `worker/`.
 - `.wrangler/` — ignored generated runtime types and local database state.
 
 Wrangler is the only added direct dependency (development only); there is no ORM
@@ -78,9 +79,10 @@ npx wrangler d1 execute DB --local --command "SELECT name FROM sqlite_master WHE
 
 `npm run types:worker` regenerates ignored types explicitly;
 `npm run typecheck:worker` regenerates them automatically and runs TypeScript.
+After a fresh checkout, run it once to make the generated types available to the editor.
 Existing frontend build and lint scripts remain available. For validation run
 `npm run format`, then `npm run build`, `npm run lint`,
-`npm run typecheck:worker`, and `npm run format:check`.
+`npm run typecheck`, and `npm run format:check`.
 
 ### Reservation storage conventions
 
