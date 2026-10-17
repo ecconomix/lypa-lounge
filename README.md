@@ -338,3 +338,147 @@ For manual integration, start local migrations/Worker and Vite as above; create
 an interval, reload and open another tab to verify persistence. Submit an interval
 from an older snapshot after another tab books it to exercise conflict feedback.
 Returning to a visible tab refreshes its snapshot automatically.
+
+## M3.1 — Single administrator authentication
+
+`/admin` is a separate minimal React page selected by pathname, without a router
+library. It restores the cookie session on reload and visible-tab return, and
+returns to the login form at the server's expiry deadline. Passwords are held only
+in the password input and request, cleared after submission, and never written to
+browser storage. No booking management or cancellation controls are implemented.
+Public reservation responses are unchanged; no admin data is added to them.
+
+### Configuration and local setup
+
+Use Node 24 (see nvm instructions above). Create an **ignored** `.dev.vars` in the
+repository root, alongside `wrangler.jsonc`:
+
+```dotenv
+ADMIN_PASSWORD="replace-with-a-unique-random-password-of-at-least-16-characters"
+ADMIN_ORIGIN="http://localhost:5173"
+```
+
+Use a password manager to generate a unique random password (at least 16
+characters, at most 1024; do not reuse the example). Do not use a `VITE_` variable:
+Vite variables are public. Never commit `.dev.vars`, credentials, or session tokens.
+`ADMIN_PASSWORD` is the only required secret. If it is missing or outside
+the 16–1024 character range, authentication fails closed with HTTP 503.
+
+`ADMIN_ORIGIN` is a non-secret exact browser origin, without a trailing slash.
+Set it to `http://localhost:5173` locally as shown above. Open that exact address;
+using `127.0.0.1`, another port, or HTTPS requires changing the configured origin
+in `.dev.vars`. HTTP origins are accepted only for loopback
+hosts. No wildcard origins or CORS access are enabled.
+
+```sh
+npm ci
+npm run db:migrate:local
+npm run dev:worker
+# In another terminal:
+npm run dev
+# Open http://localhost:5173/admin
+```
+
+Migration `0002_admin_auth.sql` adds `admin_sessions` (SHA-256 token hashes and
+UTC expiry) and `admin_login_limits` (hashed-IP/global buckets, counts and UTC
+expiry). Expired limit rows are removed on login; expired sessions are removed
+on successful login and are always denied even before cleanup. D1 remains the
+only persistent dependency.
+
+### API and security decisions
+
+| Endpoint                 | Behavior                                                                                                                    |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------- |
+| `POST /api/admin/login`  | JSON `{ "password": "…" }`; 200 sets session cookie and returns `{ authenticated: true, expiresAt }`.                       |
+| `GET /api/admin/session` | 200 with authentication state/UTC Unix expiry; otherwise generic 401.                                                       |
+| `POST /api/admin/logout` | JSON `{}`; deletes server session and expires cookie. Always 200 for valid same-origin requests, including repeated logout. |
+
+Admin responses use `Cache-Control: no-store`. Passwords are verified with native
+Web Crypto HMAC verification, which avoids a JavaScript secret string comparison.
+A fresh ephemeral HMAC key is used for each comparison; this is verification of a
+high-entropy password held in a Cloudflare secret, not a password database/KDF.
+Use a randomly generated password. Login bodies are bounded to 4096 bytes.
+Invalid and missing passwords share a generic response; auth exceptions are not
+logged. Session tokens have 256 random bits and only SHA-256 hashes enter D1.
+Successful login rotates the browser's previous session; other browsers retain
+their independent sessions. Cookies are host-only, `HttpOnly`, `SameSite=Strict`,
+`Path=/api/admin`, with a fixed seven-day `Max-Age`. D1 checks expiry on every
+protected request; there is no sliding renewal.
+
+Cookies use `Secure` whenever the request or configured origin is HTTPS, and
+non-loopback admin requests over HTTP are rejected. Local loopback HTTP omits `Secure`.
+All admin mutations, including login/logout, require `application/json` and an
+exact matching `Origin`. Together with Strict cookies this protects against
+CSRF without another token. Future admin endpoints must use `requireAdmin` from
+`worker/admin.ts`, which checks the session and applies mutation validation;
+the admin namespace already defaults to authenticated access. Missing, invalid,
+unknown, expired, and revoked sessions receive the same 401 response. Logout
+intentionally does not reveal whether the cookie existed.
+
+D1 atomically consumes attempts **before** verification: five per client IP and
+30 application-wide per 15-minute fixed window starting with the first attempt.
+Successes also count and do not reset limits. Concurrent requests cannot bypass
+caps. IP buckets use SHA-256 of Cloudflare's edge-supplied `CF-Connecting-IP`;
+missing IPs share a fallback bucket. Arbitrary `X-Forwarded-For` is ignored.
+This requires the production Worker to run behind Cloudflare's edge; do not
+forward an untrusted `CF-Connecting-IP` through another proxy. The global cap
+also bounds password checks across distributed sources. HTTP 429 supplies a
+conservative 900-second `Retry-After`.
+
+Limits deliberately trade availability for simplicity: someone can exhaust the
+global budget and temporarily prevent the administrator from logging in. Shared
+IP users share a budget. This is brute-force protection, not volumetric DDoS
+protection. Expired rows are cleaned on login rather than by scheduled jobs.
+Changing the password does **not** revoke existing sessions; to revoke all
+sessions, delete rows from `admin_sessions` in the intended database. There is no
+registration, recovery, role system, OAuth, or MFA.
+
+### Later production configuration (documentation only)
+
+No production resources or deployment are configured by this change. When that
+work is explicitly authorized, provision D1 and apply migrations as described
+above, set the non-secret `ADMIN_ORIGIN` variable in `wrangler.jsonc` to the exact HTTPS public frontend origin, and store
+the password using the interactive secret command:
+
+```sh
+npx wrangler secret put ADMIN_PASSWORD
+```
+
+Enter the password at its prompt; do not put it in shell command arguments or
+commit it. This command changes remote configuration and is **not** needed for
+local development. Production hosting must serve the SPA for `/admin` and route
+`/api/*` to the Worker under the **same public origin**, with HTTPS throughout.
+Keep local and production passwords separate. Do not deploy using the local
+placeholder D1 ID or local origin. Secrets are managed as described in
+[Cloudflare's secrets documentation](https://developers.cloudflare.com/workers/configuration/secrets/);
+verification uses supported [Web Crypto APIs](https://developers.cloudflare.com/workers/runtime-apis/web-crypto/),
+and limits use [transactional D1 batches](https://developers.cloudflare.com/d1/worker-api/d1-database/#batch).
+
+### Verification
+
+```sh
+npm run format
+npm test
+npm run typecheck
+npm run build
+npm run lint
+npm run format:check
+# Focused auth checks:
+npm test -- worker/admin.test.ts src/components/AdminPage.test.tsx
+```
+
+Manual checklist:
+
+- Open `/admin` at the configured origin; verify the loading and password form.
+- Try an incorrect password, then the correct password; verify Ukrainian feedback.
+- Inspect the cookie in browser devtools: HttpOnly, Strict, admin API path,
+  seven-day expiry (Secure on HTTPS); no auth values in browser storage.
+- Reload and reopen the tab; verify that the session is restored without bookings
+  being fetched on the admin page.
+- Log out; reload and verify access remains denied. Repeat logout through the API.
+- Expire a session row in local D1; verify the API denies it and visible-tab return
+  displays login. Let the frontend expiry timer elapse to verify its message.
+- Attempt more than five logins in 15 minutes; verify 429, then wait for reset.
+- Send login/logout with a foreign/missing Origin or a non-JSON Content-Type;
+  verify rejection and that the current session remains valid.
+- Check the public calendar and reservation creation still work normally.

@@ -1,10 +1,11 @@
+import AdminPage from './components/AdminPage'
 import Calendar from './components/Calendar'
 import BookingList from './components/BookingList'
 import BookingForm from './components/BookingForm'
 import { useAvailability } from './hooks/useAvailability'
 import './App.css'
 
-function App() {
+function BookingPage() {
   const {
     today,
     selectedDate,
@@ -60,6 +61,14 @@ function App() {
         onConflict={() => void refresh(true)}
       />
     </main>
+  )
+}
+
+function App() {
+  return /^\/admin\/?$/.test(window.location.pathname) ? (
+    <AdminPage />
+  ) : (
+    <BookingPage />
   )
 }
 
