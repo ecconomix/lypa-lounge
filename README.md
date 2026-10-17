@@ -44,8 +44,22 @@ before backend type checking, so they do not need to be checked into Git.
 
 ### Local development
 
-Use Node.js 22.13+ (Node.js 24 LTS recommended) and npm. No Cloudflare account,
-credentials, remote database, or login is needed for local development.
+Use Node.js LTS and npm. The project `.nvmrc` contains `lts/*` to track the latest
+LTS release. With [nvm](https://github.com/nvm-sh/nvm) loaded in your shell, run
+these commands from the project directory:
+
+```sh
+nvm install
+nvm use
+```
+
+`nvm install` installs the latest matching release; `nvm use` selects an installed
+matching version for the current shell. Rerun `nvm install` to pick up future LTS
+updates. Automatic switching when entering the directory requires nvm's
+[shell integration](https://github.com/nvm-sh/nvm#deeper-shell-integration).
+
+No Cloudflare account, credentials, remote database, or login is needed for local
+development.
 
 ```sh
 npm ci
