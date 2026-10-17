@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96">
+  <title>Липа Lounge</title>
+  <rect width="96" height="96" fill="#303625"/>
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M30 84C34 79 39 72 44 66" stroke="#D8B66D" stroke-width="5"/>
+    <path d="M74 15C71 31 84 40 79 57C75 73 56 79 44 68C39 80 23 74 19 61C13 42 31 29 48 25C59 22 67 22 74 15Z" fill="#D8B66D"/>
+    <path d="M43 68C51 56 62 36 71 22M53 52L36 43M59 41L65 57" stroke="#303625" stroke-width="3.6"/>
+  </g>
+</svg>
