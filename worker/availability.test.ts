@@ -1,18 +1,32 @@
-import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
-import { after, before, test } from 'node:test'
-import { getPlatformProxy } from 'wrangler'
-import worker from '../worker/index.ts'
+import { URL as NodeURL } from 'node:url'
+import { afterAll, beforeAll, expect, test, vi } from 'vitest'
+import { getPlatformProxy, type PlatformProxy } from 'wrangler'
+import worker from './index.ts'
 
-let platform
-let env
+interface AvailabilityResponse {
+  reservations: {
+    id: string
+    date: string
+    startTime: string
+    endTime: string
+    nameOrApartment: string
+    description: string | null
+  }[]
+}
 
-before(async () => {
+let platform: PlatformProxy<Env> | undefined
+let env: Env
+
+beforeAll(async () => {
   // Ephemeral, local D1: never touches development data or remote bindings.
-  platform = await getPlatformProxy({ persist: false, remoteBindings: false })
+  platform = await getPlatformProxy<Env>({
+    persist: false,
+    remoteBindings: false,
+  })
   env = platform.env
   const migration = await readFile(
-    new URL('../migrations/0001_create_reservations.sql', import.meta.url),
+    new NodeURL('../migrations/0001_create_reservations.sql', import.meta.url),
     'utf8',
   )
   for (const sql of migration
@@ -51,11 +65,11 @@ before(async () => {
   }
 })
 
-after(async () => {
+afterAll(async () => {
   await platform?.dispose()
 })
 
-function request(query, method = 'GET', bindings = env) {
+function request(query: string, method = 'GET', bindings = env) {
   return worker.fetch(
     new Request(`http://localhost/api/availability${query}`, { method }),
     bindings,
@@ -68,15 +82,17 @@ const invalidError = {
 
 test('31-day range includes boundaries, sorts active rows, and exposes only public fields', async () => {
   const response = await request('?from=2026-10-18&to=2026-11-17')
-  assert.equal(response.status, 200)
-  assert.match(response.headers.get('Content-Type'), /application\/json/)
-  const { reservations } = await response.json()
-  assert.deepEqual(
-    reservations.map(({ id }) => id),
-    ['first', 'early', 'late', 'last'],
-  )
+  expect(response.status).toBe(200)
+  expect(response.headers.get('Content-Type')).toMatch(/application\/json/)
+  const { reservations } = (await response.json()) as AvailabilityResponse
+  expect(reservations.map(({ id }) => id)).toEqual([
+    'first',
+    'early',
+    'late',
+    'last',
+  ])
   for (const reservation of reservations) {
-    assert.deepEqual(Object.keys(reservation).sort(), [
+    expect(Object.keys(reservation).sort()).toEqual([
       'date',
       'description',
       'endTime',
@@ -85,7 +101,7 @@ test('31-day range includes boundaries, sorts active rows, and exposes only publ
       'startTime',
     ])
   }
-  assert.deepEqual(reservations[2], {
+  expect(reservations[2]).toEqual({
     id: 'late',
     date: '2026-10-20',
     startTime: '18:00',
@@ -93,16 +109,14 @@ test('31-day range includes boundaries, sorts active rows, and exposes only publ
     nameOrApartment: 'Квартира 12',
     description: 'День народження',
   })
-  assert.equal(reservations[0].description, null)
+  expect(reservations[0].description).toBe(null)
 })
 
 test('single-day range returns that day only', async () => {
   const response = await request('?from=2026-10-20&to=2026-10-20')
-  assert.equal(response.status, 200)
-  assert.deepEqual(
-    (await response.json()).reservations.map(({ id }) => id),
-    ['early', 'late'],
-  )
+  expect(response.status).toBe(200)
+  const { reservations } = (await response.json()) as AvailabilityResponse
+  expect(reservations.map(({ id }) => id)).toEqual(['early', 'late'])
 })
 
 for (const [from, to] of [
@@ -115,8 +129,8 @@ for (const [from, to] of [
 ]) {
   test(`valid empty range ${from} through ${to}`, async () => {
     const response = await request(`?from=${from}&to=${to}`)
-    assert.equal(response.status, 200)
-    assert.deepEqual(await response.json(), { reservations: [] })
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ reservations: [] })
   })
 }
 
@@ -145,81 +159,78 @@ for (const query of [
   '?from=2026-10-18%27%20OR%201=1--&to=2026-10-19',
 ]) {
   test(`rejects invalid query: ${query || '(missing parameters)'}`, async () => {
-    const response = await request(query, 'GET', {
-      DB: {
-        prepare() {
-          assert.fail('Invalid requests must not query D1')
-        },
-      },
+    const prepare = vi.fn<D1Database['prepare']>(() => {
+      throw new Error('Invalid requests must not query D1')
     })
-    assert.equal(response.status, 400)
-    assert.deepEqual(await response.json(), invalidError)
+    const response = await request(query, 'GET', {
+      DB: { prepare } as unknown as D1Database,
+    })
+    expect(prepare).not.toHaveBeenCalled()
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual(invalidError)
   })
 }
 
 for (const method of ['POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD']) {
   test(`rejects ${method} with Allow header`, async () => {
     const response = await request('?from=2026-10-18&to=2026-10-19', method)
-    assert.equal(response.status, 405)
-    assert.equal(response.headers.get('Allow'), 'GET')
-    assert.deepEqual(await response.json(), {
+    expect(response.status).toBe(405)
+    expect(response.headers.get('Allow')).toBe('GET')
+    expect(await response.json()).toEqual({
       error: { code: 'METHOD_NOT_ALLOWED', message: 'Method not allowed' },
     })
   })
 }
 
-test('database failures are logged and return a generic structured error', async (t) => {
-  const log = t.mock.method(console, 'error', () => {})
+test('database failures are logged and return a generic structured error', async () => {
+  const log = vi.spyOn(console, 'error').mockImplementation(() => {})
   // An actual local D1 error: the table does not exist.
-  const brokenDb = {
-    prepare() {
-      return env.DB.prepare('SELECT * FROM missing_table')
-    },
-  }
+  // Wrap the binding: runtime proxy methods cannot be replaced with spies.
+  const brokenStatement = env.DB.prepare('SELECT * FROM missing_table')
+  const prepare = vi
+    .fn<D1Database['prepare']>()
+    .mockReturnValue(brokenStatement)
   const response = await request('?from=2026-10-18&to=2026-10-19', 'GET', {
-    DB: brokenDb,
+    DB: { prepare } as unknown as D1Database,
   })
-  assert.equal(response.status, 500)
-  assert.deepEqual(await response.json(), {
+  expect(response.status).toBe(500)
+  expect(await response.json()).toEqual({
     error: { code: 'INTERNAL_ERROR', message: 'Internal server error' },
   })
-  assert.equal(log.mock.callCount(), 1)
+  expect(log).toHaveBeenCalledTimes(1)
 })
 
-test('health and unknown path behavior remains unchanged', async (t) => {
+test('health and unknown path behavior remains unchanged', async () => {
   const response = await worker.fetch(
     new Request('http://localhost/api/health'),
     env,
   )
-  assert.equal(response.status, 200)
-  assert.deepEqual(await response.json(), { status: 'ok' })
+  expect(response.status).toBe(200)
+  expect(await response.json()).toEqual({ status: 'ok' })
 
   const post = await worker.fetch(
     new Request('http://localhost/api/health', { method: 'POST' }),
     env,
   )
-  assert.equal(post.status, 405)
-  assert.equal(post.headers.get('Allow'), 'GET')
-  assert.deepEqual(await post.json(), { error: 'Method not allowed' })
+  expect(post.status).toBe(405)
+  expect(post.headers.get('Allow')).toBe('GET')
+  expect(await post.json()).toEqual({ error: 'Method not allowed' })
 
-  t.mock.method(console, 'error', () => {})
+  vi.spyOn(console, 'error').mockImplementation(() => {})
+  const prepare = vi.fn<D1Database['prepare']>(() => {
+    throw new Error('database unavailable')
+  })
   const failed = await worker.fetch(
     new Request('http://localhost/api/health'),
-    {
-      DB: {
-        prepare: () => {
-          throw new Error('database unavailable')
-        },
-      },
-    },
+    { DB: { prepare } as unknown as D1Database },
   )
-  assert.equal(failed.status, 500)
-  assert.deepEqual(await failed.json(), { error: 'Internal server error' })
+  expect(failed.status).toBe(500)
+  expect(await failed.json()).toEqual({ error: 'Internal server error' })
 
   const unknown = await worker.fetch(
     new Request('http://localhost/api/unknown'),
     env,
   )
-  assert.equal(unknown.status, 404)
-  assert.deepEqual(await unknown.json(), { error: 'Not found' })
+  expect(unknown.status).toBe(404)
+  expect(await unknown.json()).toEqual({ error: 'Not found' })
 })

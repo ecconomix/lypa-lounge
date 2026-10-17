@@ -43,6 +43,7 @@ Do not introduce:
 Before completing a task:
 
 - Run npm run format after implementation and before the final build and lint checks
+- Run npm test
 - Run npm run build
 - Run npm run lint
 - Run npm run typecheck after implementation to check frontend, Vite config, and Worker TypeScript types
@@ -60,3 +61,15 @@ Do not commit or push unless explicitly requested.
 - Local Worker and migration scripts must use `--local`.
 - Booking dates and times use Europe/Kyiv; absolute timestamps use UTC Unix seconds.
 - Do not provision remote Cloudflare resources or deploy without an explicit request.
+
+## Testing
+
+- Use Vitest for frontend and backend tests, with explicit imports from `vitest`.
+- Colocate tests as `*.test.ts` or `*.test.tsx` beside the code under test.
+- Run `npm test` once or `npm run test:watch` during development.
+- Tests use the Node environment by default; mocks are restored before each test.
+- Worker integration tests call the handler with ephemeral local D1 bindings
+  (`persist: false`, `remoteBindings: false`) and the existing migration. Preserve
+  this integration coverage; use Vitest mocks for targeted failure cases.
+- Keep Node test types in `worker/tsconfig.test.json`, isolated from production
+  Worker and frontend types. Do not add DOM test infrastructure until needed.

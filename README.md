@@ -44,7 +44,7 @@ before backend type checking, so they do not need to be checked into Git.
 
 ### Local development
 
-Use Node.js 24 LTS or newer and npm (tests use native TypeScript support). The project `.nvmrc` contains `lts/*` to track the latest
+Use Node.js 24 LTS or newer and npm. The project `.nvmrc` contains `lts/*` to track the latest
 LTS release. With [nvm](https://github.com/nvm-sh/nvm) loaded in your shell, run
 these commands from the project directory:
 
@@ -149,12 +149,23 @@ curl -i 'http://127.0.0.1:8787/api/availability?from=2026-02-30&to=2026-03-01'
 npm test
 ```
 
-Tests use Node's built-in test runner and Wrangler's local D1 bindings with
-persistence and remote bindings disabled. They apply the existing migration and
-seed isolated fixtures without changing your development database. Coverage
-includes validation, DST boundaries, filtering, sorting, public fields, database
-failures, unsupported methods, and health regressions. No new test dependencies
-are needed. Run the validation commands above plus `npm test`.
+Vitest is the test framework for frontend and backend tests:
+
+- `npm test` runs all tests once; `npm run test:watch` reruns tests on changes.
+- Colocate `*.test.ts` / `*.test.tsx` beside the code under test and import APIs
+  explicitly from `vitest`. Tests default to the Node environment, with mocks
+  restored before each test. The shared Vite React plugin supports future TSX
+  tests; no DOM environment or component testing dependencies are installed yet.
+- `worker/availability.test.ts` invokes the Worker handler directly with
+  Wrangler's real local D1 bindings, with persistence and remote bindings disabled.
+  It applies the existing migration and seeds isolated fixtures without changing
+  your development database. Targeted D1 failures and query guards use Vitest mocks.
+- Worker test types live in `worker/tsconfig.test.json`, including Node types
+  separately from production Worker types; `npm run typecheck` checks both.
+
+The 38 tests cover validation, DST boundaries, filtering, sorting, public fields,
+database failures, unsupported methods, and health regressions. Run the validation
+commands above plus `npm test`.
 
 Availability is a request-time snapshot. Atomic conflict prevention belongs to
 the future reservation creation endpoint (M2.3). This endpoint adds no locking,
