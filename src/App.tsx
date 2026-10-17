@@ -1,39 +1,21 @@
-import { useEffect, useState } from 'react'
 import Calendar from './components/Calendar'
 import BookingList from './components/BookingList'
 import BookingForm from './components/BookingForm'
-import { createMockReservations } from './data/mockReservations'
-import { createDateRange, getKyivToday } from './utils/calendar'
+import { useAvailability } from './hooks/useAvailability'
 import './App.css'
 
 function App() {
-  const [today, setToday] = useState(() => getKyivToday())
-  const [selectedDate, setSelectedDate] = useState(today)
-  const [reservations, setReservations] = useState(() =>
-    createMockReservations(today),
-  )
-
-  useEffect(() => {
-    const refreshToday = () => {
-      if (document.visibilityState !== 'visible') return
-
-      const nextToday = getKyivToday()
-      if (nextToday === today) return
-
-      const availableDates = createDateRange(nextToday)
-      setToday(nextToday)
-      setSelectedDate((selected) =>
-        availableDates.includes(selected) ? selected : nextToday,
-      )
-    }
-
-    document.addEventListener('visibilitychange', refreshToday)
-    window.addEventListener('focus', refreshToday)
-    return () => {
-      document.removeEventListener('visibilitychange', refreshToday)
-      window.removeEventListener('focus', refreshToday)
-    }
-  }, [today])
+  const {
+    today,
+    selectedDate,
+    setSelectedDate,
+    reservations,
+    ready,
+    loading,
+    error,
+    refresh,
+    onCreated,
+  } = useAvailability()
 
   return (
     <main className="app">
@@ -41,19 +23,41 @@ function App() {
         <h1>Липа Lounge</h1>
         <p>Бронювання спільної зони відпочинку</p>
       </header>
-      <Calendar
-        startDate={today}
-        selectedDate={selectedDate}
-        onSelect={setSelectedDate}
-        reservations={reservations}
-      />
-      <BookingList selectedDate={selectedDate} reservations={reservations} />
+      <div className="availability-feedback" aria-live="polite">
+        {loading && (
+          <p role="status">
+            {ready ? 'Оновлюємо календар…' : 'Завантажуємо календар…'}
+          </p>
+        )}
+        {error && (
+          <p role="alert">
+            Не вдалося оновити календар. Перевірте з’єднання.{' '}
+            <button type="button" onClick={() => void refresh()}>
+              Спробувати ще раз
+            </button>
+          </p>
+        )}
+      </div>
+      {ready && (
+        <>
+          <Calendar
+            startDate={today}
+            selectedDate={selectedDate}
+            onSelect={setSelectedDate}
+            reservations={reservations}
+          />
+          <BookingList
+            selectedDate={selectedDate}
+            reservations={reservations}
+          />
+        </>
+      )}
       <BookingForm
         selectedDate={selectedDate}
         reservations={reservations}
-        onBookingCreated={(reservation) =>
-          setReservations((current) => [...current, reservation])
-        }
+        availabilityReady={ready}
+        onBookingCreated={onCreated}
+        onConflict={() => void refresh(true)}
       />
     </main>
   )

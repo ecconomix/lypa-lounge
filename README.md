@@ -18,8 +18,8 @@
 
 ## M2 backend foundation
 
-The frontend still uses React state and mock reservations. The availability and reservation creation APIs are implemented; frontend API
-integration is not implemented yet.
+The frontend loads reservations from the Worker API and stores the current 31-day
+snapshot in React state. Local D1 persists bookings across reloads.
 
 ### Structure
 
@@ -69,7 +69,7 @@ npm run dev:worker
 ```
 
 In another terminal, run `npm run dev` for the existing frontend. Vite proxies
-`/api` requests to `http://127.0.0.1:8787`; the UI continues to use mocks. The Worker
+`/api` requests to `http://127.0.0.1:8787`. Both servers must be running. The Worker
 only serves API responses, not the frontend assets.
 
 ```sh
@@ -154,8 +154,8 @@ Vitest is the test framework for frontend and backend tests:
 - `npm test` runs all tests once; `npm run test:watch` reruns tests on changes.
 - Colocate `*.test.ts` / `*.test.tsx` beside the code under test and import APIs
   explicitly from `vitest`. Tests default to the Node environment, with mocks
-  restored before each test. The shared Vite React plugin supports future TSX
-  tests; no DOM environment or component testing dependencies are installed yet.
+  restored before each test. React integration tests opt into jsdom with a file directive and use React
+  `act` and native DOM events; other tests retain the Node environment.
 - `worker/availability.test.ts` invokes the Worker handler directly with
   Wrangler's real local D1 bindings, with persistence and remote bindings disabled.
   It applies the existing migration and seeds isolated fixtures without changing
@@ -168,7 +168,7 @@ and DST boundaries, persistence, overlap and concurrency, replay after cancellat
 and expiry, and safe failures. All integration tests use ephemeral local D1.
 Run the validation commands above plus `npm test`.
 Availability is a request-time snapshot. Reservation creation checks conflicts
-atomically; no polling, caching infrastructure, or frontend integration is added.
+atomically; no polling, caching infrastructure, or real-time transport is added.
 
 ### Reservation API (M2.3)
 
@@ -239,7 +239,7 @@ key to verify an overlap returns 409, and query availability for that date to se
 the persistent row. `npm test` verifies these flows against isolated local D1,
 including concurrent requests. No remote resources or deployment are required.
 The API has no authentication/rate limiting in this MVP; keys identify retries,
-not user identities. The frontend continues to use its existing mocks.
+not user identities. The frontend uses these APIs directly.
 
 ### Concurrency verification (M2.4)
 
@@ -307,3 +307,34 @@ Local and remote databases are independent; local migrations/data are never
 uploaded automatically. See Cloudflare's
 [local D1 guide](https://developers.cloudflare.com/d1/best-practices/local-development/)
 and [D1 setup guide](https://developers.cloudflare.com/d1/get-started/).
+
+### Frontend API integration (M2.5)
+
+- `src/api/reservations.ts` uses native fetch, validates public responses, maps
+  nullable descriptions, and preserves HTTP status/error codes.
+- `src/hooks/useAvailability.ts` loads today plus 30 civil days in Europe/Kyiv in
+  one GET. Date selection filters this snapshot locally. Initial failure blocks
+  booking and offers retry; background refresh retains the current calendar.
+- Availability refreshes after creation/conflict and when the document becomes
+  visible. Concurrent GETs are deduplicated; superseded GETs are aborted and their
+  responses ignored. A 30-second local clock check detects Kyiv day rollover,
+  updates the range and preserves valid selections. It does not poll the API.
+- The form trims text and sends a UUID `Idempotency-Key`. Pending submissions
+  disable form controls and reject duplicate submit events. Uncertain failures
+  retain the original payload/key and offer an explicit same-request retry, even
+  if a later refresh discovers that booking or its time has passed. A different
+  normalized payload or a new booking after success gets a new key.
+- Reservation conflicts refresh the full range and clear only time selections.
+  Text and selected date remain. Idempotency conflicts have separate feedback.
+  Confirmed creations appear immediately; a failed follow-up GET keeps success
+  feedback and provides a refresh retry.
+- Retry keys live in memory: after an uncertain POST, use the same-request retry
+  before reloading/closing the page. There is no durable submission recovery.
+
+Run frontend tests with `npm test -- src`; run all frontend and ephemeral D1
+integration tests with `npm test`. Validate with `npm run format`, `npm test`,
+`npm run typecheck`, `npm run build`, `npm run lint`, `npm run format:check`.
+For manual integration, start local migrations/Worker and Vite as above; create
+an interval, reload and open another tab to verify persistence. Submit an interval
+from an older snapshot after another tab books it to exercise conflict feedback.
+Returning to a visible tab refreshes its snapshot automatically.
