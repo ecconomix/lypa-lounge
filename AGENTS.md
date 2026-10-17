@@ -60,6 +60,12 @@ Do not commit or push unless explicitly requested.
 - Use `wrangler.jsonc` and generate runtime types with `npm run types:worker`.
 - Local Worker and migration scripts must use `--local`.
 - Booking dates and times use Europe/Kyiv; absolute timestamps use UTC Unix seconds.
+- Reservation writes must use the atomic conditional insert in `worker/reservations.ts`;
+  never check availability and insert as independent operations.
+- Preserve consumed idempotency keys, including for cancelled rows. Booking payload
+  fields remain immutable so stored fields can identify identical normalized retries.
+  Future edit APIs must preserve the original payload before modifying these fields.
+- Booking text limits after trimming: name 100, description 1000 UTF-16 code units.
 - Do not provision remote Cloudflare resources or deploy without an explicit request.
 
 ## Testing

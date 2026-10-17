@@ -1,9 +1,14 @@
 import { availability } from './availability.ts'
+import { reservations } from './reservations.ts'
 
 export default {
   async fetch(request, env): Promise<Response> {
     try {
       const { pathname } = new URL(request.url)
+
+      if (pathname === '/api/reservations') {
+        return await reservations(request, env.DB)
+      }
 
       if (pathname === '/api/availability') {
         return await availability(request, env.DB)

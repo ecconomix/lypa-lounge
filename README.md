@@ -18,8 +18,8 @@
 
 ## M2 backend foundation
 
-The frontend still uses React state and mock reservations. The read-only availability API is implemented; reservation creation and
-frontend API integration are not implemented yet.
+The frontend still uses React state and mock reservations. The availability and reservation creation APIs are implemented; frontend API
+integration is not implemented yet.
 
 ### Structure
 
@@ -163,27 +163,95 @@ Vitest is the test framework for frontend and backend tests:
 - Worker test types live in `worker/tsconfig.test.json`, including Node types
   separately from production Worker types; `npm run typecheck` checks both.
 
-The 38 tests cover validation, DST boundaries, filtering, sorting, public fields,
-database failures, unsupported methods, and health regressions. Run the validation
-commands above plus `npm test`.
+The original 38 tests remain intact. Reservation tests add validation, Kyiv clock
+and DST boundaries, persistence, overlap and concurrency, replay after cancellation
+and expiry, and safe failures. All integration tests use ephemeral local D1.
+Run the validation commands above plus `npm test`.
+Availability is a request-time snapshot. Reservation creation checks conflicts
+atomically; no polling, caching infrastructure, or frontend integration is added.
 
-Availability is a request-time snapshot. Atomic conflict prevention belongs to
-the future reservation creation endpoint (M2.3). This endpoint adds no locking,
-polling, caching infrastructure, or frontend integration.
+### Reservation API (M2.3)
+
+`POST /api/reservations` requires `Content-Type: application/json` (optional
+charset parameter) and an `Idempotency-Key` UUID header. Example, using a date
+within the current booking window:
+
+```sh
+curl -i http://127.0.0.1:8787/api/reservations \
+  -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: 91b65f1b-c03e-4697-9cf5-636c020d4e61' \
+  -d '{"date":"2026-10-20","startTime":"18:00","endTime":"21:00","nameOrApartment":"Квартира 12","description":"День народження"}'
+```
+
+HTTP 201 returns `{"reservation":{...}}` with the same six public fields as
+availability, including a generated UUID `id`. Internal keys/status/audit fields
+are excluded. `description` may be omitted; blank or missing text becomes `null`
+in responses. Explicit JSON `null` input is rejected. Free text is trimmed;
+`nameOrApartment` must contain 1–100 UTF-16 code units after trimming, and
+`description` at most 1000. Unknown fields, non-object bodies, malformed JSON,
+wrong types, missing fields, and invalid/missing UUID headers return 400.
+UUID keys are case-insensitive (canonical lowercase storage).
+
+Dates are strict valid `YYYY-MM-DD`, from today through 30 calendar days ahead
+inclusive in Europe/Kyiv. Times are strict `HH:mm` on 30-minute boundaries,
+08:00–22:00 inclusive, with end after start on the same day. Duration is at least
+30 minutes; 08:00–22:00 is allowed. Today's start must be at or after the current
+instant, including seconds/milliseconds. Kyiv calendar arithmetic handles DST
+and year boundaries independently of the server timezone.
+
+Errors use `{"error":{"code":"...","message":"..."}}`:
+
+| HTTP | Code                   | Message                               |
+| ---- | ---------------------- | ------------------------------------- |
+| 400  | INVALID_RESERVATION    | Invalid reservation data              |
+| 415  | UNSUPPORTED_MEDIA_TYPE | Content-Type must be application/json |
+| 409  | RESERVATION_CONFLICT   | Selected time is no longer available  |
+| 409  | IDEMPOTENCY_CONFLICT   | Idempotency key was already used      |
+| 405  | METHOD_NOT_ALLOWED     | Method not allowed                    |
+| 500  | INTERNAL_ERROR         | Internal server error                 |
+
+Unsupported methods include `Allow: POST`. Unexpected failures are logged only
+server-side. A rejected interval does not consume its idempotency key.
+
+Retries with an identical **normalized** payload return the original reservation
+and HTTP 201, including after cancellation or expiry of the booking window.
+Different normalized payloads with a consumed key return `IDEMPOTENCY_CONFLICT`.
+An omitted description and blank description are equivalent. Keys are retained
+indefinitely. There is no migration: the existing unique key plus stored booking
+fields identify the original payload. Those fields must remain immutable; a
+future edit API must preserve an original payload/fingerprint before changing
+them. Cancellation may change status without invalidating replay.
+
+Overlap checking and insertion use one bound `INSERT ... SELECT ... WHERE NOT
+EXISTS` statement. The predicate checks active rows on the same date using
+`start_time < requestedEnd AND end_time > requestedStart`; adjacent bookings are
+allowed and cancelled rows do not block. D1 processes queries one at a time
+([Cloudflare FAQ](https://developers.cloudflare.com/d1/reference/faq/)), so this
+single write cannot interleave its check with another insert. The write uses
+`ON CONFLICT(idempotency_key) DO NOTHING` and is batched transactionally with a
+lookup by key ([D1 batch semantics](https://developers.cloudflare.com/d1/worker-api/d1-database/#batch)).
+A matching key resolves replay; no matching row means the conditional insert
+created zero rows due to an overlap. An initial key lookup permits expired retries
+before applying time-sensitive rules; it is never used to decide availability.
+
+With the local Worker running, repeat the same curl to verify replay, change the
+key to verify an overlap returns 409, and query availability for that date to see
+the persistent row. `npm test` verifies these flows against isolated local D1,
+including concurrent requests. No remote resources or deployment are required.
+The API has no authentication/rate limiting in this MVP; keys identify retries,
+not user identities. The frontend continues to use its existing mocks.
 
 ### Reservation storage conventions
 
 - `id` is a nonempty application-generated text identifier. `idempotency_key` is
-  nonempty and unique, retained even for cancelled reservations. Future request
-  replay behavior belongs to the booking API.
+  nonempty and unique, retained even for cancelled reservations. The booking API
+  uses UUID keys to identify retries.
 - `date` is a valid calendar date in `YYYY-MM-DD` form. `start_time` and `end_time`
   are zero-padded `HH:mm` civil times in **Europe/Kyiv**, matching the frontend.
   Both endpoints must fall on a 30-minute boundary; the end must follow the start
-  on the same date. Intervals will be treated as `[start, end)` by future logic.
+  on the same date. Intervals are treated as `[start, end)` by the booking API.
   These are not UTC clock times: future conversion to instants must use the IANA
-  timezone for the chosen date, including daylight-saving rules. Ambiguous or
-  nonexistent DST times need validation when implementing booking; the current
-  frontend offers daytime hours (08:00–22:00).
+  timezone for the chosen date, including daylight-saving rules. Booking hours (08:00–22:00) exclude the Europe/Kyiv DST transition hours.
 - `created_at` and `updated_at` are integer **UTC Unix seconds**, defaulting to
   `unixepoch()`. Future updates must explicitly advance `updated_at`; no update
   trigger is installed.
@@ -191,8 +259,8 @@ polling, caching infrastructure, or frontend integration.
   without deleting history. Cancellation requests and their workflow are not
   implemented. `name_or_apartment` is required; `description` is nullable.
 - A `(date, status, start_time)` index supports daily queries. The primary key and
-  unique idempotency key supply their own indexes. No overlap constraint, trigger,
-  or booking logic is included; overlap prevention belongs to M2.3.
+  unique idempotency key supply their own indexes. There is no database overlap constraint or trigger: all booking writes must use
+  the API conditional insert. Direct SQL writes can bypass overlap prevention.
 
 ### Remote D1 provisioning (manual, future work)
 
