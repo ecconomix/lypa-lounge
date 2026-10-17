@@ -2,7 +2,25 @@
   width: min(100%, 58rem);
   min-width: 0;
   margin: 0 auto;
-  padding: 2.5rem 1rem;
+  padding: 0 1rem 2.5rem;
+}
+
+.app-header {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  min-height: 13rem;
+  margin-inline: -1rem;
+  padding: 1.5rem;
+  background-color: #354333;
+  background-image:
+    linear-gradient(180deg, rgb(25 32 22 / 20%), rgb(25 32 22 / 78%)),
+    url('/images/lounge-header.webp');
+  background-size: cover;
+  background-position: 60% center;
+  color: #fffefa;
+  text-shadow: 0 2px 6px rgb(0 0 0 / 35%);
+  overflow-wrap: anywhere;
 }
 
 .app-header h1 {
@@ -14,11 +32,19 @@
 .app-header p {
   margin: 0.75rem 0 0;
   font-size: clamp(1rem, 2.5vw, 1.25rem);
-  color: #646a60;
+  color: inherit;
 }
 
 @media (min-width: 768px) {
   .app {
     padding: 4rem 2rem;
+  }
+
+  .app-header {
+    min-height: 18rem;
+    margin-inline: 0;
+    padding: 2.5rem;
+    border-radius: 1rem;
+    background-position: center;
   }
 }

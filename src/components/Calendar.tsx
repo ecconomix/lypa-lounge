@@ -134,7 +134,9 @@ export default function Calendar({
 
   return (
     <section className="calendar" aria-labelledby="calendar-title">
-      <h2 id="calendar-title">Оберіть дату</h2>
+      <h2 id="calendar-title" className="calendar-title">
+        Оберіть дату
+      </h2>
       <div className="calendar-toolbar">
         <p className="calendar-period" aria-live="polite" aria-atomic="true">
           {formatPeriod(dates[view.first], dates[view.last])}
@@ -189,11 +191,11 @@ export default function Calendar({
         </div>
       </div>
       <p id="calendar-help" className="calendar-help">
-        Гортайте дати або користуйтеся стрілками. Доступні дати на 30 днів
-        уперед. Години роботи: {OPENING_TIME}–{CLOSING_TIME} (за київським
-        часом).
+        <p> Доступні дати на 30 днів уперед. </p>
+        <p>
+          Години роботи: {OPENING_TIME}–{CLOSING_TIME}.
+        </p>
         <span className="visually-hidden">
-          {' '}
           На клавіатурі: стрілки вліво та вправо переміщують фокус, Home — на
           сьогодні, End — на останню дату. Enter або пробіл обирають дату.
         </span>
