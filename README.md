@@ -18,8 +18,8 @@
 
 ## M2 backend foundation
 
-The frontend still uses React state and mock reservations. No booking API or
-frontend API integration is implemented yet.
+The frontend still uses React state and mock reservations. The read-only availability API is implemented; reservation creation and
+frontend API integration are not implemented yet.
 
 ### Structure
 
@@ -44,7 +44,7 @@ before backend type checking, so they do not need to be checked into Git.
 
 ### Local development
 
-Use Node.js LTS and npm. The project `.nvmrc` contains `lts/*` to track the latest
+Use Node.js 24 LTS or newer and npm (tests use native TypeScript support). The project `.nvmrc` contains `lts/*` to track the latest
 LTS release. With [nvm](https://github.com/nvm-sh/nvm) loaded in your shell, run
 these commands from the project directory:
 
@@ -97,6 +97,68 @@ After a fresh checkout, run it once to make the generated types available to the
 Existing frontend build and lint scripts remain available. For validation run
 `npm run format`, then `npm run build`, `npm run lint`,
 `npm run typecheck`, and `npm run format:check`.
+
+### Availability API (M2.2)
+
+`GET /api/availability?from=2026-10-18&to=2026-11-17` returns active
+reservations ordered by date, then start time. Required `from` and `to` values
+must be valid `YYYY-MM-DD` Europe/Kyiv calendar dates. Both boundaries are
+inclusive; the maximum is 31 calendar days. Past and future ranges are allowed.
+Missing, empty, duplicate, unknown, malformed, reversed, or overly long query
+parameters return HTTP 400.
+
+HTTP 200 (an empty range returns `{"reservations":[]}`):
+
+```json
+{
+  "reservations": [
+    {
+      "id": "reservation-123",
+      "date": "2026-10-20",
+      "startTime": "18:00",
+      "endTime": "21:00",
+      "nameOrApartment": "Квартира 12",
+      "description": null
+    }
+  ]
+}
+```
+
+HTTP 400:
+
+```json
+{
+  "error": {
+    "code": "INVALID_DATE_RANGE",
+    "message": "Invalid date range"
+  }
+}
+```
+
+Unsupported methods return HTTP 405 with `Allow: GET` and error code
+`METHOD_NOT_ALLOWED`. Unexpected database failures are logged server-side and
+return HTTP 500 with `{"error":{"code":"INTERNAL_ERROR","message":"Internal server error"}}`.
+Only the six public fields above are selected; internal fields are excluded.
+Existing health and unknown-path responses retain their original format.
+
+After starting the local Worker using the commands above:
+
+```sh
+curl -i 'http://127.0.0.1:8787/api/availability?from=2026-10-18&to=2026-11-17'
+curl -i 'http://127.0.0.1:8787/api/availability?from=2026-02-30&to=2026-03-01'
+npm test
+```
+
+Tests use Node's built-in test runner and Wrangler's local D1 bindings with
+persistence and remote bindings disabled. They apply the existing migration and
+seed isolated fixtures without changing your development database. Coverage
+includes validation, DST boundaries, filtering, sorting, public fields, database
+failures, unsupported methods, and health regressions. No new test dependencies
+are needed. Run the validation commands above plus `npm test`.
+
+Availability is a request-time snapshot. Atomic conflict prevention belongs to
+the future reservation creation endpoint (M2.3). This endpoint adds no locking,
+polling, caching infrastructure, or frontend integration.
 
 ### Reservation storage conventions
 
