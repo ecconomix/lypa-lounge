@@ -1,0 +1,19 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "lypa-lounge-api",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-10-12",
+  "dev": {
+    "ip": "127.0.0.1",
+    "port": 8787,
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "lypa-lounge-db",
+      // Local-only placeholder. Replace with the real UUID after provisioning.
+      "database_id": "00000000-0000-0000-0000-000000000000",
+      "migrations_dir": "migrations",
+    },
+  ],
+}
