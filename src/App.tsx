@@ -39,7 +39,7 @@ function App() {
     <main className="app">
       <header className="app-header">
         <h1>Липа Lounge</h1>
-        <p>Бронювання спільної відпочинкової зони</p>
+        <p>Бронювання спільної зони відпочинку</p>
       </header>
       <Calendar
         startDate={today}
