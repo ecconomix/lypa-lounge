@@ -1,0 +1,139 @@
+.calendar {
+  min-width: 0;
+  margin-top: 3rem;
+}
+
+.calendar h2 {
+  margin: 0 0 1.25rem;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.calendar-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.calendar-period {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.calendar-period::first-letter {
+  text-transform: uppercase;
+}
+
+.calendar-navigation {
+  display: flex;
+  flex-shrink: 0;
+  gap: 0.5rem;
+}
+
+.calendar-arrow {
+  display: grid;
+  place-items: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  padding: 0;
+  appearance: none;
+  border: 1px solid #d6d9cf;
+  border-radius: 0.75rem;
+  background: #fffefa;
+  color: #334b39;
+  cursor: pointer;
+}
+
+.calendar-arrow:disabled {
+  color: #9c9f96;
+  background: #eeeee8;
+  cursor: default;
+}
+
+.calendar-help {
+  margin: 0.75rem 0 1rem;
+  color: #646a60;
+  font-size: 0.875rem;
+}
+
+.calendar-days {
+  --card-count: 3.2;
+  --card-gap: 0.625rem;
+  position: relative;
+  display: flex;
+  gap: var(--card-gap);
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory;
+  padding: 4px 0 0.75rem;
+  scrollbar-width: thin;
+  scrollbar-color: #bac5b6 transparent;
+}
+
+.calendar-day {
+  flex: 0 0 calc((100% - (var(--card-count) - 1) * var(--card-gap)) / var(--card-count));
+  min-width: 0;
+  min-height: 7.75rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  padding: 0.75rem 0.25rem;
+  scroll-snap-align: start;
+  border: 1px solid #d6d9cf;
+  border-radius: 1rem;
+  background: #fffefa;
+  color: #303c30;
+  cursor: pointer;
+}
+
+.calendar-day[aria-pressed='true'] {
+  border-color: #577950;
+  background: #e4eddf;
+  box-shadow: inset 0 0 0 1px #577950;
+}
+
+.calendar-weekday {
+  font-size: 0.875rem;
+  text-transform: capitalize;
+}
+
+.calendar-number {
+  font-size: 1.875rem;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.calendar-today {
+  font-size: 0.6875rem;
+}
+
+@media (hover: hover) {
+  .calendar-day:hover,
+  .calendar-arrow:enabled:hover {
+    border-color: #577950;
+    background: #edf1e8;
+  }
+}
+
+@media (min-width: 376px) {
+  .calendar-days { --card-count: 4.2; }
+}
+
+@media (min-width: 481px) {
+  .calendar-days { --card-count: 5.2; }
+}
+
+@media (min-width: 768px) {
+  .calendar-days {
+    --card-count: 7;
+    --card-gap: 0.75rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .calendar-days { scroll-behavior: auto; }
+}
