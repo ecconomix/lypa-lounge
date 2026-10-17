@@ -41,6 +41,7 @@ Do not introduce:
 
 Before completing a task:
 
+- Run npm run format after implementation and before the final build and lint checks
 - Run npm run build
 - Run npm run lint
 - Verify the acceptance criteria

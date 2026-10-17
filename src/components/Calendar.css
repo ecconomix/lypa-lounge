@@ -73,7 +73,8 @@
 }
 
 .calendar-day {
-  flex: 0 0 calc((100% - (var(--card-count) - 1) * var(--card-gap)) / var(--card-count));
+  flex: 0 0
+    calc((100% - (var(--card-count) - 1) * var(--card-gap)) / var(--card-count));
   min-width: 0;
   min-height: 7.75rem;
   display: flex;
@@ -111,6 +112,40 @@
   font-size: 0.6875rem;
 }
 
+.calendar-availability {
+  min-height: 3em;
+  margin-top: 0.25rem;
+  color: #38623b;
+  font-size: 0.6875rem;
+  line-height: 1.5;
+  text-align: center;
+}
+
+.calendar-status-dot {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  margin-right: 0.25rem;
+  border-radius: 50%;
+  background: #4c8050;
+}
+
+.calendar-availability[data-status='PARTIALLY_BOOKED'] {
+  color: #785b13;
+}
+
+.calendar-availability[data-status='PARTIALLY_BOOKED'] .calendar-status-dot {
+  background: #d3aa2c;
+}
+
+.calendar-availability[data-status='FULLY_BOOKED'] {
+  color: #953d30;
+}
+
+.calendar-availability[data-status='FULLY_BOOKED'] .calendar-status-dot {
+  background: #ba5040;
+}
+
 @media (hover: hover) {
   .calendar-day:hover,
   .calendar-arrow:enabled:hover {
@@ -120,11 +155,15 @@
 }
 
 @media (min-width: 376px) {
-  .calendar-days { --card-count: 4.2; }
+  .calendar-days {
+    --card-count: 4.2;
+  }
 }
 
 @media (min-width: 481px) {
-  .calendar-days { --card-count: 5.2; }
+  .calendar-days {
+    --card-count: 5.2;
+  }
 }
 
 @media (min-width: 768px) {
@@ -135,5 +174,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .calendar-days { scroll-behavior: auto; }
+  .calendar-days {
+    scroll-behavior: auto;
+  }
 }
