@@ -216,7 +216,6 @@ export default function Calendar({
               key={date}
               type="button"
               className="calendar-day"
-              aria-label={`${fullDateFormatter.format(calendarDate(date))}${index === 0 ? ', сьогодні' : ''}, ${statusLabel}`}
               aria-pressed={selectedDate === date}
               tabIndex={selectedDate === date ? 0 : -1}
               onKeyDown={(event) => handleKeyDown(event, index)}
@@ -237,6 +236,9 @@ export default function Calendar({
               >
                 <span className="calendar-status-dot" aria-hidden="true" />
                 {statusLabel}
+              </span>
+              <span className="visually-hidden">
+                {fullDateFormatter.format(calendarDate(date))}
               </span>
             </button>
           )
