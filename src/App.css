@@ -15,7 +15,7 @@
   background-color: #354333;
   background-image:
     linear-gradient(180deg, rgb(25 32 22 / 20%), rgb(25 32 22 / 78%)),
-    url('/images/lounge-header.webp');
+    url('/images/lounge-header-mobile.webp');
   background-size: cover;
   background-position: 60% center;
   color: #fffefa;
@@ -45,6 +45,9 @@
     margin-inline: 0;
     padding: 2.5rem;
     border-radius: 1rem;
+    background-image:
+      linear-gradient(180deg, rgb(25 32 22 / 20%), rgb(25 32 22 / 78%)),
+      url('/images/lounge-header.webp');
     background-position: center;
   }
 }
