@@ -78,4 +78,16 @@ Do not commit or push unless explicitly requested.
   (`persist: false`, `remoteBindings: false`) and the existing migration. Preserve
   this integration coverage; use Vitest mocks for targeted failure cases.
 - Keep Node test types in `worker/tsconfig.test.json`, isolated from production
-  Worker and frontend types. Do not add DOM test infrastructure until needed.
+  Worker and frontend types. React component tests use a per-file jsdom directive;
+  keep other tests in Node and use React act/native DOM events.
+
+## Frontend API integration
+
+- Use native fetch via `src/api/reservations.ts`; no runtime mock reservations.
+- Availability is one Kyiv 31-day snapshot; date selection must not fetch.
+- Deduplicate GETs and ignore aborted responses. Refresh after writes/conflicts,
+  on visible-tab return and Kyiv day rollover; do not poll the API.
+- Preserve confirmed POST success if refresh fails. Keep uncertain submission
+  payloads/UUID keys for identical retries, including when time/availability changes.
+  Never reuse a consumed key for a different booking. POSTs are not cancelled by GET cleanup.
+- Frontend component tests opt into jsdom; run `npm test -- src` or all `npm test`.
