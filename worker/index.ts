@@ -1,7 +1,13 @@
+import { availability } from './availability.ts'
+
 export default {
   async fetch(request, env): Promise<Response> {
     try {
       const { pathname } = new URL(request.url)
+
+      if (pathname === '/api/availability') {
+        return await availability(request, env.DB)
+      }
 
       if (pathname === '/api/health') {
         if (request.method !== 'GET') {

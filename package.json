@@ -5,11 +5,13 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "dev:worker": "wrangler dev --local",
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
     "types:worker": "wrangler types .wrangler/worker-configuration.d.ts",
     "typecheck": "tsc -b && npm run typecheck:worker",
-    "typecheck:worker": "npm run types:worker && tsc -p worker/tsconfig.json",
+    "typecheck:worker": "npm run types:worker && tsc -p worker/tsconfig.worker.json && tsc -p worker/tsconfig.test.json",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "format": "prettier --write .",
@@ -34,6 +36,7 @@
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.69.0",
     "vite": "^8.3.0",
+    "vitest": "^5.0.5",
     "wrangler": "^4.151.1"
   }
 }
