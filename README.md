@@ -1,6 +1,7 @@
 # lypa-lounge
 
-Мінімальний фронтенд-проєкт для сервісу **Lipa Lounge** (M0 — Project Foundation).
+Мінімальний сервіс бронювання спільної альтанки **Lypa Lounge**.
+React frontend and API are served by one Cloudflare Worker with Static Assets and D1.
 
 ## Технології
 
@@ -25,10 +26,11 @@ snapshot in React state. Local D1 persists bookings across reloads.
 
 - `worker/index.ts` — standalone TypeScript Worker using native Request/Response
   APIs. `GET /api/health` queries D1 with `SELECT 1` and returns `{"status":"ok"}`.
-  Unknown paths return JSON 404; unsupported health methods return 405. Unexpected
+  Unknown API paths return JSON 404; unsupported health methods return 405. Unexpected
   failures are logged server-side and return a generic JSON 500.
 - `wrangler.jsonc` — Worker entry point, compatibility date, local port, and D1
-  binding `DB` for `lypa-lounge-db`. The all-zero database ID is a local-only
+  binding `DB` for `lypa-lounge-db`, frontend build and Static Assets routing.
+  The all-zero database ID is a local-only
   placeholder, not a provisioned resource.
 - `migrations/0001_create_reservations.sql` — initial reservations table.
 - `worker/tsconfig.json` — editor-discovered project references for production
@@ -69,8 +71,10 @@ npm run dev:worker
 ```
 
 In another terminal, run `npm run dev` for the existing frontend. Vite proxies
-`/api` requests to `http://127.0.0.1:8787`. Both servers must be running. The Worker
-only serves API responses, not the frontend assets.
+`/api` requests to `http://127.0.0.1:8787`. Both servers must be running for frontend
+hot reload. Wrangler also builds and serves `dist/` at port 8787; this is a build
+snapshot, while Vite remains the usual local frontend. Keep local `ADMIN_ORIGIN`
+at `http://localhost:5173` when using Vite.
 
 ```sh
 curl -i http://127.0.0.1:8787/api/health
@@ -286,27 +290,11 @@ Tests disable persistence and remote bindings and do not access production D1.
   unique idempotency key supply their own indexes. There is no database overlap constraint or trigger: all booking writes must use
   the API conditional insert. Direct SQL writes can bypass overlap prevention.
 
-### Remote D1 provisioning (manual, future work)
+### Remote D1 provisioning
 
-These steps **create or modify remote resources** and are documentation only;
-they are not required or executed for M2.1:
-
-1. Create/access a Cloudflare account with permission to manage Workers and D1.
-   Install dependencies and authenticate with `npx wrangler login`. Select the
-   intended account if you have more than one (set its `account_id` in config).
-2. Run `npx wrangler d1 create lypa-lounge-db`. Copy the returned database UUID into
-   `wrangler.jsonc`, replacing the all-zero `database_id`; retain binding `DB`,
-   database name `lypa-lounge-db`, and the migrations directory. Review and commit
-   the configuration update.
-3. After reviewing migrations and confirming the target account/database, apply
-   them with `npx wrangler d1 migrations apply DB --remote`.
-4. Deployment, Worker routing, and frontend hosting integration must be handled
-   separately in a later task. No deployment script or pipeline is provided here.
-
-Local and remote databases are independent; local migrations/data are never
-uploaded automatically. See Cloudflare's
-[local D1 guide](https://developers.cloudflare.com/d1/best-practices/local-development/)
-and [D1 setup guide](https://developers.cloudflare.com/d1/get-started/).
+See [Production deployment](#production-deployment-m51a) for the complete owner-run
+procedure. Local and remote databases are independent; local migrations/data are
+never uploaded automatically.
 
 ### Frontend API integration (M2.5)
 
@@ -433,23 +421,11 @@ Changing the password does **not** revoke existing sessions; to revoke all
 sessions, delete rows from `admin_sessions` in the intended database. There is no
 registration, recovery, role system, OAuth, or MFA.
 
-### Later production configuration (documentation only)
+### Production admin configuration
 
-No production resources or deployment are configured by this change. When that
-work is explicitly authorized, provision D1 and apply migrations as described
-above, set the non-secret `ADMIN_ORIGIN` variable in `wrangler.jsonc` to the exact HTTPS public frontend origin, and store
-the password using the interactive secret command:
-
-```sh
-npx wrangler secret put ADMIN_PASSWORD
-```
-
-Enter the password at its prompt; do not put it in shell command arguments or
-commit it. This command changes remote configuration and is **not** needed for
-local development. Production hosting must serve the SPA for `/admin` and route
-`/api/*` to the Worker under the **same public origin**, with HTTPS throughout.
-Keep local and production passwords separate. Do not deploy using the local
-placeholder D1 ID or local origin. Secrets are managed as described in
+Follow [Production deployment](#production-deployment-m51a) to configure the
+server-only password and exact HTTPS origin. Keep local and production passwords
+separate. Secrets are managed as described in
 [Cloudflare's secrets documentation](https://developers.cloudflare.com/workers/configuration/secrets/);
 verification uses supported [Web Crypto APIs](https://developers.cloudflare.com/workers/runtime-apis/web-crypto/),
 and limits use [transactional D1 batches](https://developers.cloudflare.com/d1/worker-api/d1-database/#batch).
@@ -1005,3 +981,168 @@ Telegram messages. They cover concurrency across both paths, repeated operations
 rejection, validation/conflicts, rollback, authorization/CSRF, configuration absence,
 delivery/scheduling failure isolation, HTML escaping and group privacy. Browser and
 live test-group verification remain owner checks; no production deployment is needed.
+
+## Production deployment (M5.1a)
+
+Preparation only: no Cloudflare resources have been created or deployed by this
+task. The following commands are for the owner to run when launch is authorized.
+Run from the repository root with Node 24+ and `npm ci` completed.
+
+### Configuration decisions
+
+Use the existing `lypa-lounge-api` Worker and one `lypa-lounge-db` D1 database in
+the default Wrangler configuration; there are no named environments or staging.
+Wrangler runs `npm run build` and uploads only `dist/` as Static Assets alongside
+the Worker. SPA navigation, including direct `/admin` loads, serves `index.html`.
+`/api` and `/api/*` always run the Worker, including browser navigations and
+unknown API routes, so API errors remain JSON. No asset binding or Worker code
+changes are needed. See [Cloudflare Static Assets routing](https://developers.cloudflare.com/workers/static-assets/binding/).
+
+| Binding / value          | Classification                           | Required in production                                                               | Configuration                                                                                      |
+| ------------------------ | ---------------------------------------- | ------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------- |
+| `DB`                     | D1 binding, non-secret resource metadata | Yes, for all API storage                                                             | Existing `d1_databases` entry in `wrangler.jsonc`; replace the zero UUID after creation            |
+| `ADMIN_ORIGIN`           | Ordinary server configuration            | Yes, for admin authentication and mutations; also enables Telegram links             | Add `vars.ADMIN_ORIGIN` in `wrangler.jsonc`: exact public HTTPS origin, no path or trailing slash  |
+| `ADMIN_PASSWORD`         | Secret                                   | Yes, for admin login (16–1024 characters)                                            | Interactive `wrangler secret put` below; generate a unique random password with a password manager |
+| `TELEGRAM_BOT_TOKEN`     | Secret                                   | Optional for the API; required for all Telegram delivery                             | Interactive `wrangler secret put`                                                                  |
+| `TELEGRAM_GROUP_CHAT_ID` | Private destination, stored as a secret  | Optional for the API; required with the token for booking/cancellation group notices | Interactive `wrangler secret put`; residents' group where the bot may send                         |
+| `TELEGRAM_ADMIN_CHAT_ID` | Private destination, stored as a secret  | Optional for the API; required with the token for cancellation-request notices       | Interactive `wrangler secret put`; administrator's private chat, distinct from the group           |
+
+Missing Telegram configuration skips the affected notification without failing
+the booking operation. Configure all three Telegram secrets for the intended
+launch behavior. The administrator must start the bot privately; add the bot to
+the residents' group and grant send permission. Delivery is best effort, without
+automatic retries. `ADMIN_PASSWORD` missing/invalid fails authentication closed.
+
+Production uses Wrangler configuration and Cloudflare secrets, never `.dev.vars`.
+That ignored file remains local-only, including for `npm run telegram:test`;
+that script does **not** verify deployed secrets. Never copy it into `dist/`,
+upload it as an asset, or use it to bulk-populate production secrets. Never put
+secrets or private chat IDs in `vars`, frontend source, `VITE_*`, logs, shell
+arguments, screenshots or Git. No frontend environment variables are required:
+the frontend fetches same-origin `/api/*`.
+
+### Owner-run launch sequence (remote changes)
+
+1. Authenticate and confirm the intended Cloudflare account has Workers and D1
+   permissions:
+
+   ```sh
+   npx wrangler login
+   npx wrangler whoami
+   ```
+
+   If you have multiple accounts, set `CLOUDFLARE_ACCOUNT_ID` in your shell to the
+   chosen account's actual ID for all commands in this session. It is account
+   selection metadata, not an application binding. Do not invent identifiers.
+   In Cloudflare's Workers & Pages dashboard, confirm/configure the account's
+   `workers.dev` subdomain. The initial public origin will be
+   `https://lypa-lounge-api.<your-actual-subdomain>.workers.dev`.
+
+2. Create the single production database **once**:
+
+   ```sh
+   npx wrangler d1 create lypa-lounge-db
+   ```
+
+   In the existing `d1_databases` entry in `wrangler.jsonc`, replace only the
+   all-zero `database_id` with the returned UUID. Keep binding `DB`, name
+   `lypa-lounge-db`, and `migrations_dir: "migrations"`. Do not append a second
+   database or deploy with the placeholder. Add a top-level `vars` object with
+   `ADMIN_ORIGIN` set to the actual HTTPS origin determined in step 1. Review
+   these non-secret configuration changes before deploying; they may be committed
+   once the resources and origin exist. Keep local overrides in `.dev.vars`.
+
+3. Review all four checked-in migrations (`0001`–`0004`), confirm the target
+   database UUID/account, then list and apply pending migrations **remotely**:
+
+   ```sh
+   npx wrangler d1 migrations list DB --remote
+   npx wrangler d1 migrations apply DB --remote
+   npx wrangler d1 migrations list DB --remote
+   ```
+
+   For comparison, `npm run db:migrate:local` and
+   `npx wrangler d1 migrations list DB --local` affect only local state. Local
+   migrations and test bookings are not transferred to production. Never use
+   local fixtures/seed SQL against production. Migrations change live schema/data:
+   review SQL and back up existing production data before later migrations.
+   Do not delete/recreate D1, drop tables, reset data, or run ad hoc cleanup SQL
+   as a deployment step. Cancellation preserves history and consumed keys.
+
+4. Configure server secrets interactively for `lypa-lounge-api`:
+
+   ```sh
+   npx wrangler secret put ADMIN_PASSWORD
+   npx wrangler secret put TELEGRAM_BOT_TOKEN
+   npx wrangler secret put TELEGRAM_GROUP_CHAT_ID
+   npx wrangler secret put TELEGRAM_ADMIN_CHAT_ID
+   ```
+
+   Enter each production value only at its prompt. These commands change remote
+   state and can deploy a new Worker version. On first use, Wrangler may prompt
+   to create the not-yet-deployed Worker; confirm the exact Worker/account before
+   accepting. This establishes secrets before the application goes live. Do not
+   share the URL until setup and verification are complete. Secrets persist
+   across normal deployments; configuration in `vars` is managed by the file.
+   See [Cloudflare secrets](https://developers.cloudflare.com/workers/configuration/secrets/).
+
+5. Validate locally, then deploy the Worker and frontend together:
+
+   ```sh
+   npm run format
+   npm test
+   npm run typecheck
+   npm run lint
+   npm run build
+   npm run format:check
+   npx wrangler deploy
+   ```
+
+   `wrangler deploy` rebuilds the frontend via the configured build command.
+   It is a **remote write**. The output reports the deployed `workers.dev` URL;
+   confirm it exactly matches `vars.ADMIN_ORIGIN`. If different, correct the
+   origin in `wrangler.jsonc` and redeploy before using admin functionality.
+   No custom domain, separate frontend host, staging, or CI/CD is required.
+
+### Production verification (owner)
+
+Use the actual deployment URL below; replace the example before running:
+
+```sh
+LYPA_URL='https://lypa-lounge-api.<your-actual-subdomain>.workers.dev'
+curl -i "$LYPA_URL/api/health"
+curl -i -H 'Sec-Fetch-Mode: navigate' "$LYPA_URL/api/unknown"
+```
+
+Expect health HTTP 200 with `{"status":"ok"}` (D1 connectivity), and unknown API
+HTTP 404 JSON even with navigation headers. Then verify in a browser:
+
+- Open `/` on mobile, load the calendar, select dates, create a clearly labelled
+  future test booking in an agreed free slot, and reload to confirm persistence.
+  Check static JS/CSS load and API responses are JSON in the network panel.
+- Load `/admin` directly and reload it. Before login, admin data must be denied;
+  an incorrect password must fail. Log in with the production password, check
+  the booking list, create/remove a technical block in another free slot, and
+  confirm public availability updates without exposing the internal block reason.
+- Request cancellation of the test booking with a harmless test reason. Confirm
+  one private admin Telegram notice with the reason and `/admin` link; the group
+  must not receive that reason. Approve in `/admin`: confirm the slot becomes
+  free and one group cancellation notice contains only date/time, availability
+  text and the calendar link, without name, reason, description or internal IDs.
+- Confirm the original new-booking group notice included date/time and
+  name/apartment, with no description. Check links use the production HTTPS
+  origin. If testing direct admin cancellation or rejection, use another labelled
+  booking: direct cancellation sends one group notice; rejection sends none and
+  keeps the booking active. Removing a technical block sends none.
+- Log out and confirm admin access is denied again. Existing same-origin JSON
+  mutation checks, HttpOnly/SameSite session cookies and HTTPS Secure cookies
+  remain unchanged. Do not weaken origin checks to resolve setup errors.
+
+Coordinate these tests with residents: production writes persist and send real
+messages. Cancel test bookings via admin; retain their rows/history. If Telegram
+does not deliver, verify token, destinations, bot membership/send permission and
+private chat initiation. Review only sanitized failure messages; do not log
+credentials or payloads. Replaying a successful booking/cancellation does not
+resend a failed notification. Live Cloudflare, browser and Telegram checks remain
+owner actions after deployment; automated tests use ephemeral local D1 and mocked
+Telegram delivery.
