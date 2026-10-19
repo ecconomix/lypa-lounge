@@ -253,7 +253,16 @@ test.each(['network', 'http', 'api'])(
     const body = await response.json()
     await expect(Promise.all(tasks)).resolves.toEqual([undefined])
     expect(await count()).toBe(1)
-    expect(log.mock.calls).toEqual([['Telegram booking notification failed']])
+    expect(log.mock.calls).toEqual([
+      [
+        'Telegram booking notification failed',
+        failure === 'http'
+          ? 'HTTP 403'
+          : failure === 'network'
+            ? 'network'
+            : 'delivery error',
+      ],
+    ])
     expect(await (await book(payload, key)).json()).toEqual(body)
     expect(fetchMock).toHaveBeenCalledTimes(1)
   },

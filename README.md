@@ -840,8 +840,9 @@ The M4.1 client and manual delivery scripts remain unchanged.
 
 The Worker registers delivery with `ExecutionContext.waitUntil` so the booking
 response does not wait for Telegram. Missing or blank token/group configuration
-silently skips delivery. Telegram failures log only a fixed message without
-error details, credentials, destinations or booking data. They never roll back
+silently skips delivery. Telegram failures log a fixed message and a safe category (`HTTP NNN`,
+`network` or `delivery error`), without raw error details, credentials,
+destinations or booking data. They never roll back
 the booking or change its API response. There are no new variables, dependencies,
 retries, queues or tables. Delivery is best effort: a crash or Telegram failure
 can lose a notification, and retrying a successful booking does not resend it.
@@ -869,7 +870,7 @@ Cancellation/review notifications and production deployment are outside M4.2.
    persistent availability, with no notification.
 6. Set a deliberately invalid test token, restart the Worker and book another
    free interval. Confirm HTTP 201, persistent availability and only the fixed
-   `Telegram booking notification failed` log. Replaying the POST must not resend.
+   `Telegram booking notification failed HTTP 401` log. Replaying the POST must not resend.
    Restore the valid local test configuration and restart the Worker afterward.
 
 Automated tests use mocked Telegram fetches and ephemeral local D1. They cover
@@ -879,3 +880,11 @@ and persistence despite delivery/scheduling failure. Run `npm run format`,
 `npm test`, `npm run typecheck`, `npm run build`, `npm run lint` and
 `npm run format:check`. Live test-group verification is an owner manual check;
 automated tests never contact Telegram.
+
+If the Node test script succeeds but an app booking fails to notify, inspect the
+Worker log category: `HTTP 401` indicates rejected bot credentials; `HTTP 400` or
+`HTTP 403` requires checking the configured group and bot permissions; `network`
+means the Worker could not complete the outbound request. Restart the local
+Worker after changing `.dev.vars`. Create a new booking for each delivery check;
+replaying an already persisted booking never resends the notification. Never log
+raw fetch errors or Telegram response bodies while investigating.

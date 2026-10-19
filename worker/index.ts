@@ -31,9 +31,19 @@ export default {
               env.TELEGRAM_GROUP_CHAT_ID,
               `Нове бронювання альтанки\n${date}, ${booking.startTime}–${booking.endTime}\n${booking.nameOrApartment}`,
             )
-            .catch(() => {
+            .catch((error: unknown) => {
               // Never log errors, credentials, destinations or booking data.
-              console.error('Telegram booking notification failed')
+              const message = error instanceof Error ? error.message : ''
+              const status =
+                /^Telegram sendMessage failed \(HTTP ([1-5]\d{2})\)$/.exec(
+                  message,
+                )?.[1]
+              const reason = status
+                ? `HTTP ${status}`
+                : message === 'Telegram sendMessage network request failed'
+                  ? 'network'
+                  : 'delivery error'
+              console.error('Telegram booking notification failed', reason)
             })
           ctx.waitUntil(notification)
         })
