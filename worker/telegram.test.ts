@@ -20,7 +20,7 @@ test('sends plain text as JSON and accepts Telegram success', async () => {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ chat_id: chatId, text: 'Привіт <b>світе</b>' }),
-      redirect: 'error',
+      redirect: 'manual',
     },
   )
 })
@@ -34,6 +34,24 @@ test('reports HTTP errors without exposing response content', async () => {
     'Telegram sendMessage failed (HTTP 403)',
   )
 })
+
+test.each([301, 302, 307, 308])(
+  'rejects HTTP %i redirects without following or exposing the destination',
+  async (status) => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(null, {
+        status,
+        headers: { Location: `https://example.invalid/${token}` },
+      }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    await expect(client.sendMessage(chatId, 'Test')).rejects.toThrow(
+      `Telegram sendMessage failed (HTTP ${status})`,
+    )
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock.mock.calls[0][1].redirect).toBe('manual')
+  },
+)
 
 test.each([{ ok: false, description: token }, {}, null, { ok: 'true' }])(
   'rejects API failures and malformed envelopes: %j',

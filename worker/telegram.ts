@@ -20,7 +20,9 @@ export function createTelegramClient(token: string | undefined) {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ chat_id: chatId, text }),
-            redirect: 'error',
+            // Workers supports manual/follow, not error. Reject 3xx below
+            // without following redirects to another destination.
+            redirect: 'manual',
           },
         )
       } catch {

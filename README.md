@@ -888,3 +888,8 @@ means the Worker could not complete the outbound request. Restart the local
 Worker after changing `.dev.vars`. Create a new booking for each delivery check;
 replaying an already persisted booking never resends the notification. Never log
 raw fetch errors or Telegram response bodies while investigating.
+
+The Telegram client uses `redirect: 'manual'`: Cloudflare Workers does not
+support `redirect: 'error'`, even though Node fetch does. Redirect responses
+are rejected as HTTP failures without following their destination. This keeps
+Node-script and Worker delivery compatible while preserving redirect protection.

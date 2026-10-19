@@ -149,7 +149,7 @@ test('committed booking schedules exactly one concise Ukrainian plain-text notif
         chat_id: 'test-only-group',
         text: 'Нове бронювання альтанки\n20.10.2026, 18:00–20:00\nКвартира 12',
       }),
-      redirect: 'error',
+      redirect: 'manual',
     },
   )
   finish(Response.json({ ok: true }))
