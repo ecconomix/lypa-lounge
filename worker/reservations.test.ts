@@ -13,6 +13,7 @@ import { getPlatformProxy, type PlatformProxy } from 'wrangler'
 import worker from './index.ts'
 import { reservations } from './reservations.ts'
 import type { TelegramEnv } from './telegram.ts'
+import type { AdminEnv } from './admin.ts'
 
 let platform: PlatformProxy<Env> | undefined
 let env: Env
@@ -81,7 +82,7 @@ function request(
   body: unknown = payload,
   key = crypto.randomUUID(),
   headers: Record<string, string> = {},
-  bindings: Env & TelegramEnv = env,
+  bindings: Env & TelegramEnv & AdminEnv = env,
   context?: Pick<ExecutionContext, 'waitUntil'>,
 ) {
   return worker.fetch(
@@ -115,6 +116,7 @@ function notifications() {
   }
   const bindings = {
     ...env,
+    ADMIN_ORIGIN: undefined,
     TELEGRAM_BOT_TOKEN: 'test-only-token',
     TELEGRAM_GROUP_CHAT_ID: 'test-only-group',
   }
@@ -123,7 +125,7 @@ function notifications() {
   return { fetchMock, tasks, context, bindings, book }
 }
 
-test('committed booking schedules exactly one concise Ukrainian plain-text notification', async () => {
+test('committed booking schedules exactly one Ukrainian HTML notification', async () => {
   const { fetchMock, tasks, context, book } = notifications()
   let finish!: (response: Response) => void
   fetchMock.mockImplementation(
@@ -147,13 +149,35 @@ test('committed booking schedules exactly one concise Ukrainian plain-text notif
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         chat_id: 'test-only-group',
-        text: 'Нове бронювання альтанки\n20.10.2026, 18:00–20:00\nКвартира 12',
+        text: '<b>🌿 Липа Lounge | Нове бронювання</b>\n\n📅 <b>Дата:</b> вівторок, 20 жовтня 2026 р.\n🕒 <b>Час:</b> 18:00–20:00\n👤 <b>Ім’я / квартира:</b> Квартира 12',
+        parse_mode: 'HTML',
       }),
       redirect: 'manual',
     },
   )
   finish(Response.json({ ok: true }))
   await Promise.all(tasks)
+})
+
+test('HTML notification escapes booking text and links only to the configured public origin', async () => {
+  const { fetchMock, tasks, context, bindings } = notifications()
+  const response = await request(
+    { ...payload, nameOrApartment: '<b>Олена & "12"</b>' },
+    crypto.randomUUID(),
+    {},
+    { ...bindings, ADMIN_ORIGIN: 'https://lounge.example' },
+    context,
+  )
+  expect(response.status).toBe(201)
+  await Promise.all(tasks)
+  const sent = JSON.parse(fetchMock.mock.calls[0][1].body)
+  expect(sent.parse_mode).toBe('HTML')
+  expect(sent.text).toContain('&lt;b&gt;Олена &amp; &quot;12&quot;&lt;/b&gt;')
+  expect(sent.text).toContain(
+    '<a href="https://lounge.example/">Відкрити календар</a>',
+  )
+  expect(sent.text).not.toContain(payload.description)
+  expect(fetchMock).toHaveBeenCalledTimes(1)
 })
 
 test('sequential and concurrent idempotent replays send only once, including cancelled/expired retries', async () => {

@@ -35,6 +35,17 @@ test('reports HTTP errors without exposing response content', async () => {
   )
 })
 
+test('sends explicitly requested HTML parse mode', async () => {
+  const fetchMock = vi.fn().mockResolvedValue(Response.json({ ok: true }))
+  vi.stubGlobal('fetch', fetchMock)
+  await client.sendMessage(chatId, '<b>Бронювання</b>', { parseMode: 'HTML' })
+  expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+    chat_id: chatId,
+    text: '<b>Бронювання</b>',
+    parse_mode: 'HTML',
+  })
+})
+
 test.each([301, 302, 307, 308])(
   'rejects HTTP %i redirects without following or exposing the destination',
   async (status) => {

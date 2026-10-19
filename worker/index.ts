@@ -3,6 +3,7 @@ import { availability } from './availability.ts'
 import { reservations } from './reservations.ts'
 import { cancellationRequests } from './cancellationRequests.ts'
 import { createTelegramClient, type TelegramEnv } from './telegram.ts'
+import { formatBookingNotification } from './telegramMessages.ts'
 
 export default {
   async fetch(
@@ -25,11 +26,11 @@ export default {
             !env.TELEGRAM_GROUP_CHAT_ID?.trim()
           )
             return
-          const date = booking.date.split('-').reverse().join('.')
           const notification = createTelegramClient(env.TELEGRAM_BOT_TOKEN)
             .sendMessage(
               env.TELEGRAM_GROUP_CHAT_ID,
-              `Нове бронювання альтанки\n${date}, ${booking.startTime}–${booking.endTime}\n${booking.nameOrApartment}`,
+              formatBookingNotification(booking, env.ADMIN_ORIGIN),
+              { parseMode: 'HTML' },
             )
             .catch((error: unknown) => {
               // Never log errors, credentials, destinations or booking data.

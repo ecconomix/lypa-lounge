@@ -7,7 +7,11 @@ export interface TelegramEnv {
 
 export function createTelegramClient(token: string | undefined) {
   return {
-    async sendMessage(chatId: string, text: string): Promise<void> {
+    async sendMessage(
+      chatId: string,
+      text: string,
+      options?: { parseMode: 'HTML' },
+    ): Promise<void> {
       if (!token?.trim() || !chatId.trim()) {
         throw new Error('Telegram bot token and chat ID are required')
       }
@@ -19,7 +23,11 @@ export function createTelegramClient(token: string | undefined) {
           {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ chat_id: chatId, text }),
+            body: JSON.stringify({
+              chat_id: chatId,
+              text,
+              ...(options ? { parse_mode: options.parseMode } : {}),
+            }),
             // Workers supports manual/follow, not error. Reject 3xx below
             // without following redirects to another destination.
             redirect: 'manual',

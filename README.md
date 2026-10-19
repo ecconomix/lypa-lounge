@@ -822,21 +822,35 @@ are required. Live delivery and production configuration require owner verificat
 
 ## M4.2 — Telegram booking notifications
 
-A newly committed public booking sends one concise Ukrainian plain-text message
+A newly committed public booking sends one concise Ukrainian HTML message
 to `TELEGRAM_GROUP_CHAT_ID`, using the existing `TELEGRAM_BOT_TOKEN` and client.
 For example:
 
 ```text
-Нове бронювання альтанки
-20.10.2026, 18:00–20:00
-Квартира 12
+🌿 Липа Lounge | Нове бронювання
+
+📅 Дата: вівторок, 20 жовтня 2026 р.
+🕒 Час: 18:00–20:00
+👤 Ім’я / квартира: Квартира 12
 ```
 
 The message includes only the booking date, time range and trimmed `nameOrApartment`; descriptions, internal
 IDs and idempotency keys are excluded. The D1 batch's insert count identifies a
 new row after commit, including during concurrent requests. Idempotent replays,
 validation errors, conflicts and technical blocks never trigger notifications.
-The M4.1 client and manual delivery scripts remain unchanged.
+`worker/telegramMessages.ts` formats messages independently of delivery, with a
+shared HTML escaping helper available for future M4.3 cancellation messages.
+The header and labels are bold, the date includes the Ukrainian weekday, and all
+dynamic text is escaped before sending with `parse_mode: HTML`. The client accepts
+an optional `{ parseMode: 'HTML' }` argument; existing manual scripts still send
+plain text by default.
+
+The existing `ADMIN_ORIGIN` is documented as the public frontend origin. When it
+is a valid exact HTTPS origin, the message includes **Відкрити календар**, linking
+to the public calendar at `/`. Missing, malformed, non-HTTPS, credential-bearing
+and local development origins omit the link. No new configuration is introduced;
+links are never derived from request headers. If public and admin frontend origins
+are separated in the future, this source must be revisited.
 
 The Worker registers delivery with `ExecutionContext.waitUntil` so the booking
 response does not wait for Telegram. Missing or blank token/group configuration
@@ -857,7 +871,10 @@ Cancellation/review notifications and production deployment are outside M4.2.
 2. Run `npm run db:migrate:local`, `npm run dev:worker` and `npm run dev`.
    Create a future public booking through the UI, including a private description.
    Confirm HTTP 201, persisted availability and exactly one group message with
-   date/time and name/apartment. Check that the description is absent.
+   a bold header/labels, emojis, Ukrainian weekday/date, time range and name/apartment.
+   Check that the description is absent. Try a name such as `Олена & <12>` and
+   confirm it appears literally. A valid public HTTPS `ADMIN_ORIGIN` adds the
+   calendar link; local development configuration omits it.
 3. In browser developer tools, copy that POST as fetch and repeat it with its
    original JSON and `Idempotency-Key`. Confirm the same HTTP 201/reservation
    and no second notification. Change its name with the same key; expect 409
