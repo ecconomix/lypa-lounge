@@ -1,0 +1,61 @@
+.cancellation-request {
+  width: 100%;
+  border-top: 1px solid #d6d9cf;
+  padding-top: 0.75rem;
+}
+
+.cancellation-request form {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.cancellation-request p {
+  margin: 0;
+  color: #646a60;
+  font-size: 0.875rem;
+  overflow-wrap: anywhere;
+}
+
+.cancellation-request label {
+  font-weight: 600;
+}
+
+.cancellation-request textarea,
+.cancellation-request button {
+  min-height: 2.75rem;
+  padding: 0.625rem 0.75rem;
+  border: 1px solid #bac5b6;
+  border-radius: 0.5rem;
+  background: #fffefa;
+  color: #335b3b;
+  font: inherit;
+}
+
+.cancellation-request textarea {
+  width: 100%;
+  resize: vertical;
+}
+
+.cancellation-request textarea:focus-visible {
+  outline: 3px solid #335b3b;
+  outline-offset: 2px;
+}
+
+.cancellation-request button {
+  cursor: pointer;
+}
+
+.cancellation-request button[type='submit'] {
+  background: #335b3b;
+  color: #fffefa;
+}
+
+.cancellation-request button:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
+
+.cancellation-request [role='alert'] {
+  color: #953d30;
+}

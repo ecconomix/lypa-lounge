@@ -280,8 +280,8 @@ Tests disable persistence and remote bindings and do not access production D1.
   `unixepoch()`. Future updates must explicitly advance `updated_at`; no update
   trigger is installed.
 - `status` is `active` (default) or `cancelled`, allowing future soft cancellation
-  without deleting history. Cancellation requests and their workflow are not
-  implemented. `name_or_apartment` is required; `description` is nullable.
+  without deleting history. Cancellation requests are stored separately; their review workflow is deferred
+  to M3.3. `name_or_apartment` is required; `description` is nullable.
 - A `(date, status, start_time)` index supports daily queries. The primary key and
   unique idempotency key supply their own indexes. There is no database overlap constraint or trigger: all booking writes must use
   the API conditional insert. Direct SQL writes can bypass overlap prevention.
@@ -345,7 +345,7 @@ Returning to a visible tab refreshes its snapshot automatically.
 library. It restores the cookie session on reload and visible-tab return, and
 returns to the login form at the server's expiry deadline. Passwords are held only
 in the password input and request, cleared after submission, and never written to
-browser storage. No booking management or cancellation controls are implemented.
+browser storage. No admin booking management or cancellation review controls are implemented.
 Public reservation responses are unchanged; no admin data is added to them.
 
 ### Configuration and local setup
@@ -482,3 +482,110 @@ Manual checklist:
 - Send login/logout with a foreign/missing Origin or a non-JSON Content-Type;
   verify rejection and that the current session remains valid.
 - Check the public calendar and reservation creation still work normally.
+
+## M3.2 — Public cancellation requests
+
+The reservation list offers **Запросити скасування** with an inline explanation
+form. Users must identify themselves (name/apartment) and explain their reason.
+Submitting only asks for administrator review: the reservation stays active and
+its time stays unavailable. Approval/rejection is deferred to M3.3.
+
+### Storage and architecture
+
+Apply `0003_cancellation_requests.sql` using `npm run db:migrate:local` before
+starting the local Worker. This adds a strict `cancellation_requests` table with
+UUID `id`, `reservation_id` foreign key, required `reason`, `status`
+(`pending`, `approved`, `rejected`), UTC Unix-second `created_at`, and nullable
+`reviewed_at`. Pending rows require no review timestamp; reviewed rows require a
+timestamp at or after creation. A partial unique index permits at most one
+pending row per reservation, while preserving all reviewed history. Foreign keys
+restrict reservation deletion. No reservation columns or availability queries change.
+
+The existing reservation IDs are random UUIDs but publicly listed, so they are
+identifiers, never authorization. Any public visitor may submit a request; only
+a future authenticated administrator operation can decide whether to cancel.
+M3.1 admin authentication and its protected namespace remain unchanged. There is
+no public request listing, explanation lookup, private link, or request-review API.
+
+Eligibility means an active reservation whose end is still in the future using
+Europe/Kyiv civil date/time, including bookings already in progress. The API
+uses one conditional insert and the database partial unique index to enforce
+eligibility and concurrency safety. A transactional follow-up lookup distinguishes
+missing reservations without returning reservation or request details.
+
+### API contract
+
+`POST /api/reservations/:id/cancellation-requests` requires
+`Content-Type: application/json` and exactly `{ "reason": "…" }`.
+No authentication or idempotency header is required. Free text is trimmed and
+must contain 10–1000 UTF-16 code units, at least one Unicode letter or number,
+and no NUL characters. The database additionally bounds text to 1–1000 SQLite
+characters. This checks basic substance; requester identity and the truth or
+adequacy of the explanation must be assessed by the administrator.
+
+HTTP 201 returns only `{ "status": "pending" }`. Errors follow the public API's
+`{ "error": { "code": "…", "message": "…" } }` shape:
+
+| HTTP | Code                          | Meaning                                                          |
+| ---- | ----------------------------- | ---------------------------------------------------------------- |
+| 400  | INVALID_REASON                | Missing, blank, short, oversized, malformed or unsupported input |
+| 404  | RESERVATION_NOT_FOUND         | No matching reservation                                          |
+| 409  | CANCELLATION_REQUEST_CONFLICT | Already pending or reservation is cancelled/ended                |
+| 405  | METHOD_NOT_ALLOWED            | Only POST supported; includes Allow: POST                        |
+| 415  | UNSUPPORTED_MEDIA_TYPE        | JSON required                                                    |
+| 500  | INTERNAL_ERROR                | Generic server failure                                           |
+
+Duplicate/ineligible conflicts deliberately share feedback without exposing
+request history, explanations, review timestamps, or administrative data. Retrying
+an uncertain submission cannot create a second pending row; it returns 409 if
+the first succeeded. Success disables further submissions in the mounted form.
+The UI refreshes availability after success/conflict and preserves confirmed
+success if that refresh fails. POST is independent of GET cancellation.
+
+### Verification and manual checklist
+
+Automated tests cover local ephemeral D1 migrations/constraints, successful and
+invalid input, missing/cancelled/ended bookings, Kyiv/DST end boundaries,
+duplicate and 20 competing submissions, preserved history, unchanged reservation
+rows/availability and continued overlap rejection. React DOM tests cover inline
+validation, loading/duplicate locking, trimmed payload, success, uncertain retry,
+and Ukrainian conflict/not-found feedback. Run the full validation commands above.
+
+If `.dev.vars` is present, the current Wrangler type generator makes its admin
+fields required in generated `Env`; existing M3.1 test fixtures omit these fields,
+so `npm run typecheck` reports errors in those fixtures. To check types without
+local secret-derived fields (without editing `.dev.vars`), run:
+
+```sh
+npm run types:worker -- --env-file /dev/null
+npm exec tsc -- -b
+npm exec tsc -- -p worker/tsconfig.worker.json
+npm exec tsc -- -p worker/tsconfig.test.json
+```
+
+The plain typecheck command regenerates types and will reproduce that existing
+local-configuration issue. No authentication or type-generation setup is changed
+by M3.2.
+
+For manual verification (local only):
+
+- Apply migrations and start the local Worker and Vite with Node 24.
+- Open a date with an active reservation on a mobile-width screen. Expand
+  **Запросити скасування** and check the label, explanation, and active-booking notice.
+- Submit blank/short text; verify Ukrainian validation. Enter your identity and
+  reason, submit, and verify loading controls and confirmation.
+- Confirm the booking remains marked **Зайнято**, including after reload, and
+  that an overlapping booking is still rejected.
+- Submit for the same reservation from another tab; verify conflict feedback.
+- Simulate an offline POST and retry after reconnecting. Verify text is retained
+  and only one pending row exists in local D1. Fail the follow-up availability
+  refresh and verify the confirmed request message remains.
+- Check keyboard focus and textarea usability. Verify public responses contain
+  no request explanation, history, review details, or administrator data.
+
+Limitations: requester identity is self-reported; there is no ownership proof,
+rate limiting, notification, durable browser submission state, or review UI.
+A visitor can occupy the one pending request for a booking; administrator review
+is required to resolve it in M3.3. Form confirmation is in memory and disappears
+when navigating away/reloading; subsequent submissions remain database-protected.
+No deployment or remote resources are part of M3.2.

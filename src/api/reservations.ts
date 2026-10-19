@@ -114,3 +114,19 @@ export async function createReservation(
   })
   return reservation((await body(response, 201)).reservation)
 }
+
+export async function requestCancellation(
+  id: string,
+  reason: string,
+): Promise<void> {
+  const response = await fetch(
+    `/api/reservations/${encodeURIComponent(id)}/cancellation-requests`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason: reason.trim() }),
+    },
+  )
+  if ((await body(response, 201)).status !== 'pending')
+    throw new ApiError(201, 'MALFORMED_RESPONSE')
+}

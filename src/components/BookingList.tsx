@@ -1,15 +1,18 @@
 import type { Reservation } from '../types/reservation'
 import { calendarDate, fullDateFormatter } from '../utils/calendar'
 import './BookingList.css'
+import CancellationRequestForm from './CancellationRequestForm'
 
 type BookingListProps = {
   selectedDate: string
   reservations: readonly Reservation[]
+  onRefresh: () => void
 }
 
 export default function BookingList({
   selectedDate,
   reservations,
+  onRefresh,
 }: BookingListProps) {
   const bookings = reservations
     .filter((reservation) => reservation.date === selectedDate)
@@ -52,6 +55,10 @@ export default function BookingList({
                 )}
               </div>
               <span className="booking-status">Зайнято</span>
+              <CancellationRequestForm
+                reservationId={booking.id}
+                onRefresh={onRefresh}
+              />
             </li>
           ))}
         </ul>
