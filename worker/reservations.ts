@@ -128,6 +128,7 @@ export async function reservations(
   request: Request,
   db: D1Database,
   kind: 'booking' | 'block' = 'booking',
+  onBookingCreated?: (booking: Omit<ReservationInput, 'description'>) => void,
 ): Promise<Response> {
   if (request.method !== 'POST') {
     return Response.json(
@@ -173,7 +174,7 @@ export async function reservations(
     // One conditional write checks overlap and inserts atomically. Only the key's
     // unique constraint is ignored; other constraint failures remain unexpected.
     // Batch the follow-up read in the same transaction to resolve concurrent keys.
-    const [, result] = await db.batch<Reservation>([
+    const [insert, result] = await db.batch<Reservation>([
       db
         .prepare(
           `INSERT INTO reservations
@@ -202,7 +203,24 @@ export async function reservations(
         ),
       lookup,
     ])
-    if (result.results[0]) return replay(result.results[0], input)
+    if (result.results[0]) {
+      // The batch has committed. Its write count distinguishes a new row from
+      // concurrent idempotent replays, which also return 201.
+      if (insert.meta.changes === 1 && kind === 'booking') {
+        try {
+          onBookingCreated?.({
+            date: input.date,
+            startTime: input.startTime,
+            endTime: input.endTime,
+            nameOrApartment: input.nameOrApartment,
+          })
+        } catch {
+          // Notification scheduling must never change a committed booking.
+          console.error('Booking notification scheduling failed')
+        }
+      }
+      return replay(result.results[0], input)
+    }
     return jsonError(
       'RESERVATION_CONFLICT',
       'Selected time is no longer available',

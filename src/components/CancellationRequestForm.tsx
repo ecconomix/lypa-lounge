@@ -78,7 +78,7 @@ export default function CancellationRequestForm({
             onClick={() => setOpen(!open)}
             disabled={pending}
           >
-            Запросити скасування
+            Запит на скасування
           </button>
           {open && (
             <form id={id} onSubmit={submit} noValidate>

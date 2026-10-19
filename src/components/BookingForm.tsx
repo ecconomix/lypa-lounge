@@ -100,6 +100,12 @@ export default function BookingForm({
   }
 
   useEffect(() => {
+    if (!success) return
+    const timeout = window.setTimeout(() => setSuccess(false), 5000)
+    return () => window.clearTimeout(timeout)
+  }, [success])
+
+  useEffect(() => {
     const refreshTime = () => setNow(new Date())
     const interval = window.setInterval(refreshTime, 30_000)
     window.addEventListener('focus', refreshTime)

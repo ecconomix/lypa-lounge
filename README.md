@@ -819,3 +819,94 @@ npm run lint
 Focused client tests: `npm test -- worker/telegram.test.ts`. The local script is
 included in the Node-aware Worker test TypeScript project. No new dependencies
 are required. Live delivery and production configuration require owner verification.
+
+## M4.2 — Telegram booking notifications
+
+A newly committed public booking sends one concise Ukrainian HTML message
+to `TELEGRAM_GROUP_CHAT_ID`, using the existing `TELEGRAM_BOT_TOKEN` and client.
+For example:
+
+```text
+🌿 Липа Lounge | Нове бронювання
+
+📅 Дата: вівторок, 20 жовтня 2026 р.
+🕒 Час: 18:00–20:00
+👤 Ім’я / квартира: Квартира 12
+```
+
+The message includes only the booking date, time range and trimmed `nameOrApartment`; descriptions, internal
+IDs and idempotency keys are excluded. The D1 batch's insert count identifies a
+new row after commit, including during concurrent requests. Idempotent replays,
+validation errors, conflicts and technical blocks never trigger notifications.
+`worker/telegramMessages.ts` formats messages independently of delivery, with a
+shared HTML escaping helper available for future M4.3 cancellation messages.
+The header and labels are bold, the date includes the Ukrainian weekday, and all
+dynamic text is escaped before sending with `parse_mode: HTML`. The client accepts
+an optional `{ parseMode: 'HTML' }` argument; existing manual scripts still send
+plain text by default.
+
+The existing `ADMIN_ORIGIN` is documented as the public frontend origin. When it
+is a valid exact HTTPS origin, the message includes **Відкрити календар**, linking
+to the public calendar at `/`. Missing, malformed, non-HTTPS, credential-bearing
+and local development origins omit the link. No new configuration is introduced;
+links are never derived from request headers. If public and admin frontend origins
+are separated in the future, this source must be revisited.
+
+The Worker registers delivery with `ExecutionContext.waitUntil` so the booking
+response does not wait for Telegram. Missing or blank token/group configuration
+silently skips delivery. Telegram failures log a fixed message and a safe category (`HTTP NNN`,
+`network` or `delivery error`), without raw error details, credentials,
+destinations or booking data. They never roll back
+the booking or change its API response. There are no new variables, dependencies,
+retries, queues or tables. Delivery is best effort: a crash or Telegram failure
+can lose a notification, and retrying a successful booking does not resend it.
+Telegram acceptance does not confirm that a person has read the message.
+Cancellation/review notifications and production deployment are outside M4.2.
+
+### Local test-group verification
+
+1. Use Node 24 and configure `.dev.vars` as described in M4.1, with the local
+   **test group** as `TELEGRAM_GROUP_CHAT_ID`. Ensure the bot can send there;
+   `npm run telegram:test -- group` can verify connectivity independently.
+2. Run `npm run db:migrate:local`, `npm run dev:worker` and `npm run dev`.
+   Create a future public booking through the UI, including a private description.
+   Confirm HTTP 201, persisted availability and exactly one group message with
+   a bold header/labels, emojis, Ukrainian weekday/date, time range and name/apartment.
+   Check that the description is absent. Try a name such as `Олена & <12>` and
+   confirm it appears literally. A valid public HTTPS `ADMIN_ORIGIN` adds the
+   calendar link; local development configuration omits it.
+3. In browser developer tools, copy that POST as fetch and repeat it with its
+   original JSON and `Idempotency-Key`. Confirm the same HTTP 201/reservation
+   and no second notification. Change its name with the same key; expect 409
+   and no message. Never share copied requests containing personal data.
+4. Submit an overlapping booking with a new key; expect 409 and no message.
+   Submit invalid input; expect 400 and no message. At `/admin`, create a
+   technical block in another free interval and verify no group notification.
+5. Stop the Worker, temporarily remove either Telegram setting from `.dev.vars`,
+   restart it and create a booking in a free interval. Confirm HTTP 201 and
+   persistent availability, with no notification.
+6. Set a deliberately invalid test token, restart the Worker and book another
+   free interval. Confirm HTTP 201, persistent availability and only the fixed
+   `Telegram booking notification failed HTTP 401` log. Replaying the POST must not resend.
+   Restore the valid local test configuration and restart the Worker afterward.
+
+Automated tests use mocked Telegram fetches and ephemeral local D1. They cover
+committed delivery, nonblocking responses, sequential/concurrent replay deduplication,
+validation/conflict/block suppression, missing configuration, safe failure logging
+and persistence despite delivery/scheduling failure. Run `npm run format`,
+`npm test`, `npm run typecheck`, `npm run build`, `npm run lint` and
+`npm run format:check`. Live test-group verification is an owner manual check;
+automated tests never contact Telegram.
+
+If the Node test script succeeds but an app booking fails to notify, inspect the
+Worker log category: `HTTP 401` indicates rejected bot credentials; `HTTP 400` or
+`HTTP 403` requires checking the configured group and bot permissions; `network`
+means the Worker could not complete the outbound request. Restart the local
+Worker after changing `.dev.vars`. Create a new booking for each delivery check;
+replaying an already persisted booking never resends the notification. Never log
+raw fetch errors or Telegram response bodies while investigating.
+
+The Telegram client uses `redirect: 'manual'`: Cloudflare Workers does not
+support `redirect: 'error'`, even though Node fetch does. Redirect responses
+are rejected as HTTP failures without following their destination. This keeps
+Node-script and Worker delivery compatible while preserving redirect protection.

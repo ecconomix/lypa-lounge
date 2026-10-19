@@ -446,7 +446,7 @@ it('preserves confirmed cancellation-request success when availability refresh f
   fetchMock.mockResolvedValueOnce(response([booking]))
   await mount()
   await click(host.querySelectorAll<HTMLButtonElement>('.calendar-day')[2])
-  await click(findButton('Запросити скасування'))
+  await click(findButton('Запит на скасування'))
   host.querySelector('textarea')!.value = 'Я з квартири 12, змінилися плани.'
   fetchMock.mockResolvedValueOnce(
     Response.json({ status: 'pending' }, { status: 201 }),

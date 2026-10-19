@@ -2,12 +2,14 @@ import { admin, type AdminEnv } from './admin.ts'
 import { availability } from './availability.ts'
 import { reservations } from './reservations.ts'
 import { cancellationRequests } from './cancellationRequests.ts'
-import type { TelegramEnv } from './telegram.ts'
+import { createTelegramClient, type TelegramEnv } from './telegram.ts'
+import { formatBookingNotification } from './telegramMessages.ts'
 
 export default {
   async fetch(
     request: Request,
     env: Env & AdminEnv & TelegramEnv,
+    ctx?: Pick<ExecutionContext, 'waitUntil'>,
   ): Promise<Response> {
     try {
       const { pathname } = new URL(request.url)
@@ -17,7 +19,35 @@ export default {
       }
 
       if (pathname === '/api/reservations') {
-        return await reservations(request, env.DB)
+        return await reservations(request, env.DB, 'booking', (booking) => {
+          if (
+            !ctx ||
+            !env.TELEGRAM_BOT_TOKEN?.trim() ||
+            !env.TELEGRAM_GROUP_CHAT_ID?.trim()
+          )
+            return
+          const notification = createTelegramClient(env.TELEGRAM_BOT_TOKEN)
+            .sendMessage(
+              env.TELEGRAM_GROUP_CHAT_ID,
+              formatBookingNotification(booking, env.ADMIN_ORIGIN),
+              { parseMode: 'HTML' },
+            )
+            .catch((error: unknown) => {
+              // Never log errors, credentials, destinations or booking data.
+              const message = error instanceof Error ? error.message : ''
+              const status =
+                /^Telegram sendMessage failed \(HTTP ([1-5]\d{2})\)$/.exec(
+                  message,
+                )?.[1]
+              const reason = status
+                ? `HTTP ${status}`
+                : message === 'Telegram sendMessage network request failed'
+                  ? 'network'
+                  : 'delivery error'
+              console.error('Telegram booking notification failed', reason)
+            })
+          ctx.waitUntil(notification)
+        })
       }
 
       const cancellation =
