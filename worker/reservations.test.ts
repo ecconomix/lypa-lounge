@@ -1,8 +1,18 @@
 import { readFile } from 'node:fs/promises'
 import { URL as NodeURL } from 'node:url'
-import { afterAll, beforeAll, beforeEach, expect, test, vi } from 'vitest'
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  expect,
+  test,
+  vi,
+} from 'vitest'
 import { getPlatformProxy, type PlatformProxy } from 'wrangler'
 import worker from './index.ts'
+import { reservations } from './reservations.ts'
+import type { TelegramEnv } from './telegram.ts'
 
 let platform: PlatformProxy<Env> | undefined
 let env: Env
@@ -65,12 +75,14 @@ beforeEach(async () => {
 afterAll(() => {
   vi.useRealTimers()
 })
+afterEach(() => vi.unstubAllGlobals())
 
 function request(
   body: unknown = payload,
   key = crypto.randomUUID(),
   headers: Record<string, string> = {},
-  bindings = env,
+  bindings: Env & TelegramEnv = env,
+  context?: Pick<ExecutionContext, 'waitUntil'>,
 ) {
   return worker.fetch(
     new Request('http://localhost/api/reservations', {
@@ -83,6 +95,7 @@ function request(
       body: JSON.stringify(body),
     }),
     bindings,
+    context,
   )
 }
 async function count() {
@@ -90,6 +103,175 @@ async function count() {
     'SELECT COUNT(*) AS count FROM reservations',
   ).first<{ count: number }>())!.count
 }
+
+function notifications() {
+  const fetchMock = vi.fn().mockResolvedValue(Response.json({ ok: true }))
+  vi.stubGlobal('fetch', fetchMock)
+  const tasks: Promise<unknown>[] = []
+  const context = {
+    waitUntil: vi.fn((task: Promise<unknown>) => {
+      tasks.push(task)
+    }),
+  }
+  const bindings = {
+    ...env,
+    TELEGRAM_BOT_TOKEN: 'test-only-token',
+    TELEGRAM_GROUP_CHAT_ID: 'test-only-group',
+  }
+  const book = (body: unknown = payload, key = crypto.randomUUID()) =>
+    request(body, key, {}, bindings, context)
+  return { fetchMock, tasks, context, bindings, book }
+}
+
+test('committed booking schedules exactly one concise Ukrainian plain-text notification', async () => {
+  const { fetchMock, tasks, context, book } = notifications()
+  let finish!: (response: Response) => void
+  fetchMock.mockImplementation(
+    () =>
+      new Promise<Response>((resolve) => {
+        finish = resolve
+      }),
+  )
+  const response = await book({
+    ...payload,
+    nameOrApartment: ` ${payload.nameOrApartment} `,
+  })
+  // The API succeeds and the row is committed while Telegram is still pending.
+  expect(response.status).toBe(201)
+  expect(await count()).toBe(1)
+  expect(context.waitUntil).toHaveBeenCalledTimes(1)
+  expect(fetchMock).toHaveBeenCalledExactlyOnceWith(
+    'https://api.telegram.org/bottest-only-token/sendMessage',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: 'test-only-group',
+        text: 'Нове бронювання альтанки\n20.10.2026, 18:00–20:00 (Київ)\nКвартира 12',
+      }),
+      redirect: 'error',
+    },
+  )
+  finish(Response.json({ ok: true }))
+  await Promise.all(tasks)
+})
+
+test('sequential and concurrent idempotent replays send only once, including cancelled/expired retries', async () => {
+  const { fetchMock, tasks, book } = notifications()
+  const key = crypto.randomUUID()
+  const responses = await Promise.all(
+    Array.from({ length: 8 }, () => book(payload, key)),
+  )
+  expect(responses.map((response) => response.status)).toEqual(
+    Array(8).fill(201),
+  )
+  expect((await book(payload, key)).status).toBe(201)
+  await env.DB.prepare("UPDATE reservations SET status = 'cancelled'").run()
+  vi.setSystemTime(new Date('2027-01-01T00:00:00Z'))
+  expect((await book(payload, key)).status).toBe(201)
+  await Promise.all(tasks)
+  expect(fetchMock).toHaveBeenCalledTimes(1)
+  expect(await count()).toBe(1)
+})
+
+test('invalid input, overlap and idempotency conflicts do not notify', async () => {
+  const { fetchMock, tasks, book } = notifications()
+  const key = crypto.randomUUID()
+  expect((await book({}, key)).status).toBe(400)
+  expect(fetchMock).not.toHaveBeenCalled()
+  expect((await book(payload, key)).status).toBe(201)
+  await Promise.all(tasks)
+  fetchMock.mockClear()
+  expect((await book()).status).toBe(409)
+  expect(
+    (await book({ ...payload, nameOrApartment: 'Other' }, key)).status,
+  ).toBe(409)
+  expect(fetchMock).not.toHaveBeenCalled()
+})
+
+test('administrative block does not invoke booking notifications even with a callback', async () => {
+  const { fetchMock } = notifications()
+  const onCreated = vi.fn()
+  const response = await reservations(
+    new Request('http://localhost/api/admin/blocks', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': crypto.randomUUID(),
+      },
+      body: JSON.stringify(payload),
+    }),
+    env.DB,
+    'block',
+    onCreated,
+  )
+  expect(response.status).toBe(201)
+  expect(await env.DB.prepare('SELECT kind FROM reservations').first()).toEqual(
+    { kind: 'block' },
+  )
+  expect(onCreated).not.toHaveBeenCalled()
+  expect(fetchMock).not.toHaveBeenCalled()
+})
+
+test.each([
+  { TELEGRAM_BOT_TOKEN: undefined },
+  { TELEGRAM_GROUP_CHAT_ID: undefined },
+  { TELEGRAM_BOT_TOKEN: ' ' },
+  { TELEGRAM_GROUP_CHAT_ID: ' ' },
+])('missing Telegram configuration preserves booking: %j', async (missing) => {
+  const { fetchMock, context, bindings } = notifications()
+  const response = await request(
+    payload,
+    crypto.randomUUID(),
+    {},
+    { ...bindings, ...missing },
+    context,
+  )
+  expect(response.status).toBe(201)
+  expect(await count()).toBe(1)
+  expect(fetchMock).not.toHaveBeenCalled()
+  expect(context.waitUntil).not.toHaveBeenCalled()
+})
+
+test.each(['network', 'http', 'api'])(
+  'Telegram %s failure preserves booking and logs only a fixed message',
+  async (failure) => {
+    const { fetchMock, tasks, book } = notifications()
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const sensitive =
+      'test-only-token test-only-group Квартира 12 День народження'
+    if (failure === 'network') fetchMock.mockRejectedValue(new Error(sensitive))
+    else
+      fetchMock.mockResolvedValue(
+        failure === 'http'
+          ? new Response(sensitive, { status: 403 })
+          : Response.json({ ok: false, description: sensitive }),
+      )
+    const key = crypto.randomUUID()
+    const response = await book(payload, key)
+    expect(response.status).toBe(201)
+    const body = await response.json()
+    await expect(Promise.all(tasks)).resolves.toEqual([undefined])
+    expect(await count()).toBe(1)
+    expect(log.mock.calls).toEqual([['Telegram booking notification failed']])
+    expect(await (await book(payload, key)).json()).toEqual(body)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  },
+)
+
+test('notification scheduling failure preserves committed booking', async () => {
+  const { bindings, context, tasks } = notifications()
+  const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+  context.waitUntil.mockImplementation(() => {
+    throw new Error('sensitive scheduling error')
+  })
+  expect(
+    (await request(payload, crypto.randomUUID(), {}, bindings, context)).status,
+  ).toBe(201)
+  expect(await count()).toBe(1)
+  await Promise.all(tasks)
+  expect(log.mock.calls).toEqual([['Booking notification scheduling failed']])
+})
 
 interface StoredReservation {
   id: string
