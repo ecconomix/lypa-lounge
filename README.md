@@ -830,9 +830,9 @@ are separated in the future, this source must be revisited.
 
 The Worker registers delivery with `ExecutionContext.waitUntil` so the booking
 response does not wait for Telegram. Missing or blank token/group configuration
-silently skips delivery. Telegram failures log a fixed message and a safe category (`HTTP NNN`,
-`network` or `delivery error`), without raw error details, credentials,
-destinations or booking data. They never roll back
+skips delivery with a safe `telegram.skipped` event. Telegram failures emit
+`telegram.failed` with a fixed delivery/scheduling reason, without raw error
+details, credentials, destinations or booking data (see M5.4 below). They never roll back
 the booking or change its API response. There are no new variables, dependencies,
 retries, queues or tables. Delivery is best effort: a crash or Telegram failure
 can lose a notification, and retrying a successful booking does not resend it.
@@ -863,7 +863,7 @@ Cancellation/review notifications and production deployment are outside M4.2.
    persistent availability, with no notification.
 6. Set a deliberately invalid test token, restart the Worker and book another
    free interval. Confirm HTTP 201, persistent availability and only the fixed
-   `Telegram booking notification failed HTTP 401` log. Replaying the POST must not resend.
+   `telegram.failed` event with `reason: delivery`. Replaying the POST must not resend.
    Restore the valid local test configuration and restart the Worker afterward.
 
 Automated tests use mocked Telegram fetches and ephemeral local D1. They cover
@@ -874,12 +874,11 @@ and persistence despite delivery/scheduling failure. Run `npm run format`,
 `npm run format:check`. Live test-group verification is an owner manual check;
 automated tests never contact Telegram.
 
-If the Node test script succeeds but an app booking fails to notify, inspect the
-Worker log category: `HTTP 401` indicates rejected bot credentials; `HTTP 400` or
-`HTTP 403` requires checking the configured group and bot permissions; `network`
-means the Worker could not complete the outbound request. Restart the local
-Worker after changing `.dev.vars`. Create a new booking for each delivery check;
-replaying an already persisted booking never resends the notification. Never log
+If the Node test script succeeds but an app booking fails to notify, inspect
+`telegram.skipped` versus `telegram.failed` (see M5.4 below). Check configured
+credentials, the group and bot permissions without logging secrets. Restart the
+local Worker after changing `.dev.vars`. Create a new booking for each delivery
+check; replaying a persisted booking never resends the notification. Never log
 raw fetch errors or Telegram response bodies while investigating.
 
 The Telegram client uses `redirect: 'manual'`: Cloudflare Workers does not
@@ -940,8 +939,8 @@ HTTP status codes, response shapes, authentication and CSRF checks are unchanged
 No migrations, dependencies, frontend changes or notification channels are added.
 
 Missing/blank token or destination skips that notification. Telegram and scheduling
-failures cannot change successful API responses or committed D1 state. Logs contain
-only fixed failure text, never credentials, chat IDs, private reasons or names.
+failures cannot change successful API responses or committed D1 state. Structured logs contain
+only safe event fields (see M5.4), never credentials, chat IDs, private reasons or names.
 Delivery remains best effort: there is no outbox, queue, retry or recovery after a
 crash between commit and scheduling. Network failure can also leave delivery
 uncertain. Replaying an operation does not resend its notification, even if the
@@ -973,7 +972,7 @@ original delivery failed. Telegram acceptance does not guarantee a person read i
    never come from request headers. Do not change production settings for this test.
 6. Restart with a missing token/admin/group destination and confirm the relevant
    operation still succeeds without delivery. A deliberately invalid test token
-   should log a fixed failure message while preserving the request/cancellation.
+   should log `telegram.failed` while preserving the request/cancellation.
    Restore `.dev.vars` afterward. Repeated operations must not resend.
 
 Automated tests use mocked Telegram fetches and ephemeral local D1, without live
@@ -1146,3 +1145,124 @@ credentials or payloads. Replaying a successful booking/cancellation does not
 resend a failed notification. Live Cloudflare, browser and Telegram checks remain
 owner actions after deployment; automated tests use ephemeral local D1 and mocked
 Telegram delivery.
+
+## Observability & Analytics (M5.4)
+
+Preparation only: these settings take effect on a later owner-authorized deployment.
+No remote Cloudflare resources, settings, secrets or production data were changed.
+The installed Wrangler 4.151.1 supports the checked-in settings; no upgrade is needed.
+
+In the Cloudflare account dashboard:
+
+| View              | Location / purpose                                                                                                                                                                                                                                             |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Workers Analytics | **Workers & Pages → Worker → Metrics**: existing native requests, errors and CPU metrics; no extra binding or analytics code required.                                                                                                                         |
+| Workers Logs      | **Workers & Pages → Worker → Observability → Logs**: invocation logs and structured console events. Filter by `event` and severity.                                                                                                                            |
+| Workers Issues    | **Workers & Pages → Worker → Issues**: grouped errors, failed invocations and HTTP 5xx responses. Only new traffic is processed after enabling.                                                                                                                |
+| D1 metrics        | **Storage & databases → D1 → lypa-lounge-db → Metrics**: rows read/written, query volume/duration and database storage. The database overview also shows size. Use **Query Insights**, when available, for per-query execution time, frequency and row counts. |
+| Web Analytics     | Account **Web Analytics → site**: page views, visits and Core Web Vitals after beacon setup.                                                                                                                                                                   |
+
+`wrangler.jsonc` enables persisted Workers Logs, invocation logs and Issues with
+100% head sampling, plus query-string redaction. Workers Analytics remains native
+and unchanged. No traces, SDK, export destination or custom SQL metrics tables
+are added. The original configuration had no explicit observability or source-map
+settings; existing Dashboard settings were not inspected or changed remotely.
+See [Wrangler observability configuration](https://developers.cloudflare.com/workers/wrangler/configuration/#observability),
+[Workers Logs](https://developers.cloudflare.com/workers/observability/logs/workers-logs/),
+[Issues](https://developers.cloudflare.com/workers/observability/issues/) and
+[D1 analytics](https://developers.cloudflare.com/d1/observability/metrics-analytics/).
+
+Live inspection (owner, authenticated Cloudflare account):
+
+```sh
+npx wrangler tail lypa-lounge
+```
+
+**Confirm the Worker name before deployment or tailing.** The supplied production
+URL uses `lypa-lounge`, but this repository still configures `lypa-lounge-api`.
+If the latter is the intended deployed Worker, use `npx wrangler tail lypa-lounge-api`.
+This preparation does not rename either Worker or resolve the mismatch remotely.
+
+Application logs use native `console.info`, `console.warn` and `console.error`:
+
+| Events                                                                      | Severity and meaning                                                                                                                                                                                                                    |
+| --------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `reservation.created`, `technical_block.created`, `technical_block.removed` | INFO, `outcome: success`; one committed insert/removal, never an idempotent replay.                                                                                                                                                     |
+| `reservation.conflict`                                                      | WARN, `outcome: conflict`; unavailable interval or reuse of a booking key with different input.                                                                                                                                         |
+| `cancellation.requested`, `cancellation.approved`, `cancellation.rejected`  | INFO, `outcome: success`; committed request/review transition. Direct admin cancellation also logs approval when it actually resolves a pending request. Direct cancellation without a pending request has no review transition to log. |
+| `database.error`, `api.unexpected_error`                                    | ERROR, `outcome: failure`; fixed safe events, without caught error objects or messages. Database-operation handler failures use the former; outer routing/authentication failures use the latter.                                       |
+| `telegram.sent`                                                             | INFO, `outcome: success`; Telegram accepted the API request, not proof anyone read it.                                                                                                                                                  |
+| `telegram.failed`                                                           | ERROR, `outcome: failure`, fixed `reason: delivery` or `scheduling`; no raw Telegram responses or URLs.                                                                                                                                 |
+| `telegram.skipped`                                                          | WARN, `outcome: skipped`, fixed `reason: missing_configuration` or `missing_context`; distinct from attempted delivery failure.                                                                                                         |
+
+Telegram events include only `notificationType`: `reservation_created`,
+`cancellation_requested` or `reservation_cancelled`. Existing `waitUntil` delivery
+remains best effort, without retries or an outbox. Logging exceptions are swallowed.
+Business events use existing committed D1 write counts, with no extra queries.
+There is no application log for every successful GET. These logs are diagnostic,
+not a durable audit ledger: a crash between commit and logging can lose an event.
+
+Application console fields exclude resident names/apartments, descriptions,
+cancellation reasons, IDs, idempotency keys, credentials, destinations, cookies,
+headers, bodies, database records, IP addresses and request URLs. Prior raw D1
+error logging and fixed Telegram failure text have been replaced by safe events.
+Cloudflare platform observability independently records request metadata; invocation
+paths can contain IDs even with query strings redacted. Restrict dashboard/tail
+access and do not share raw platform logs. No operational logs are exposed by APIs.
+
+`upload_source_maps: true` lets Wrangler generate Worker maps alongside its bundle
+and upload them on a future deployment. Maps stay outside public `dist/`; frontend
+source maps remain disabled. Local packaging verifies TypeScript mappings, but
+live Cloudflare stack remapping remains an owner check after deployment. Caught
+errors deliberately omit their raw messages/stacks for privacy, so these structured
+error events alone cannot provide original exception stacks. Uncaught runtime
+exceptions can use the uploaded maps. See [source maps](https://developers.cloudflare.com/workers/observability/source-maps/).
+
+### Web Analytics setup (owner)
+
+1. After merging, open account **Web Analytics → Add a site**, enter the actual
+   production hostname, then open **Manage site** and copy the public `token`
+   from the official JavaScript snippet. Use manual snippet installation; avoid
+   automatic injection as well as this integration, which would double-count.
+   See [Cloudflare setup](https://developers.cloudflare.com/web-analytics/get-started/).
+2. Store `VITE_CLOUDFLARE_WEB_ANALYTICS_TOKEN` in the Git-tracked `.env.production`
+   file at the repository root. The token is a **public browser identifier**,
+   embedded by Vite during production builds, so it is safe to commit. This makes
+   the analytics configuration reproducible when building and deploying manually
+   with Wrangler from any computer after cloning the repository and installing
+   dependencies. Keep only this public token in `.env.production`; never add
+   passwords, Telegram settings or other secrets. `.env.local`, local production
+   overrides and `.dev.vars` remain ignored. Avoid local or shell overrides of
+   this token when building the shared production configuration. Worker secrets
+   remain managed separately through Cloudflare.
+3. Rebuild and deploy only when separately authorized. The official deferred
+   `https://static.cloudflareinsights.com/beacon.min.js` script is loaded once
+   in production builds only, when the token is a valid 32-character hexadecimal
+   value. Missing/blank/malformed values load no script and make no beacon request.
+   Vite development mode does not enable analytics.
+4. Visit the deployed site, check the browser Network panel for the beacon script
+   and a successful request to Cloudflare's analytics endpoint, then wait a few
+   minutes and verify page views in **Web Analytics → site**. Core Web Vitals need
+   real supported browser traffic; blockers may prevent collection. No booking
+   form values, resident identity or custom business events are sent by the app.
+   The official beacon needs no analytics cookies. Page URLs/referrers are still
+   analytics metadata: never put resident details in URLs.
+
+After merging, the owner must reconcile the Worker name, optionally configure the
+Web Analytics site/token, authorize a normal deployment, and confirm Logs/Issues
+are enabled in that Worker's Dashboard. No separate Issues Dashboard toggle is
+required by this Wrangler version, but availability and ingestion must be checked
+there. Inspect a normal booking's safe events and confirm existing D1 metrics.
+Do not intentionally crash production to test source maps; use a separately
+approved nonproduction diagnostic if live verification is needed.
+
+Free-plan limits are finite: as documented in October 2026, Workers Logs includes
+200,000 events/day with three-day retention; invocation and console events both
+consume capacity. Issues is currently free during beta. D1 daily row-read/write
+and storage limits still apply; excess usage can fail queries. Web Analytics can
+be blocked and is not an exact visitor census. Review current
+[Logs limits/pricing](https://developers.cloudflare.com/workers/observability/logs/workers-logs/#pricing)
+and [D1 pricing](https://developers.cloudflare.com/d1/platform/pricing/) before
+changing sampling or plans; Cloudflare documents a Logs pricing change for
+December 1, 2026. 100% sampling is the initial setting, not a guarantee of complete
+retention or delivery.

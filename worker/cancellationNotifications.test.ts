@@ -11,11 +11,9 @@ import {
 } from 'vitest'
 import { getPlatformProxy, type PlatformProxy } from 'wrangler'
 import worker from './index.ts'
-import type { AdminEnv } from './admin.ts'
-import type { TelegramEnv } from './telegram.ts'
 
 let platform: PlatformProxy<Env>
-let env: Env & AdminEnv & TelegramEnv
+let env: Parameters<typeof worker.fetch>[1]
 let cookie: string
 const origin = 'https://lounge.example'
 const reason = '<b>Приватна причина & "плани"</b>'
@@ -379,11 +377,15 @@ for (const path of ['request', 'approval', 'direct'] as const) {
         )
       expect(log.mock.calls).toEqual([
         [
-          failure === 'scheduling'
-            ? path === 'request'
-              ? 'Cancellation request notification scheduling failed'
-              : 'Cancellation notification scheduling failed'
-            : 'Telegram cancellation notification failed',
+          {
+            event: 'telegram.failed',
+            outcome: 'failure',
+            notificationType:
+              path === 'request'
+                ? 'cancellation_requested'
+                : 'reservation_cancelled',
+            reason: failure === 'scheduling' ? 'scheduling' : 'delivery',
+          },
         ],
       ])
       await operation()
@@ -410,6 +412,7 @@ for (const path of ['request', 'approval', 'direct'] as const) {
     },
   )
   test(`${path}: transaction failure never schedules delivery`, async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {})
     if (path === 'approval') await pending()
     const before = await state()
     const bindings = {
@@ -420,12 +423,14 @@ for (const path of ['request', 'approval', 'direct'] as const) {
       } as unknown as D1Database,
     }
     expect((await operation(bindings)).status).toBe(500)
+    expect(info).not.toHaveBeenCalled()
     expect(await state()).toEqual(before)
     expect(fetchMock).not.toHaveBeenCalled()
     expect(context.waitUntil).not.toHaveBeenCalled()
   })
 }
 test('failed cancellation transaction rolls back review and never notifies', async () => {
+  const info = vi.spyOn(console, 'info').mockImplementation(() => {})
   await pending()
   await env.DB.prepare(
     `CREATE TRIGGER fail_cancel BEFORE UPDATE OF status ON reservations
@@ -435,10 +440,100 @@ test('failed cancellation transaction rolls back review and never notifies', asy
   try {
     expect((await review()).status).toBe(500)
     expect((await cancel()).status).toBe(500)
+    expect(info).not.toHaveBeenCalled()
     expect(await state()).toEqual(before)
     expect(fetchMock).not.toHaveBeenCalled()
     expect(context.waitUntil).not.toHaveBeenCalled()
   } finally {
     await env.DB.prepare('DROP TRIGGER fail_cancel').run()
   }
+})
+
+test('cancellation request logs once for concurrent writes and only after commit', async () => {
+  const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+  await Promise.all(Array.from({ length: 8 }, () => create()))
+  await Promise.all(tasks)
+  expect((await state()).request?.status).toBe('pending')
+  expect(info.mock.calls).toEqual([
+    [{ event: 'cancellation.requested', outcome: 'success' }],
+    [
+      {
+        event: 'telegram.sent',
+        outcome: 'success',
+        notificationType: 'cancellation_requested',
+      },
+    ],
+  ])
+})
+
+test.each(['approve', 'reject'] as const)(
+  'concurrent %s logs exactly the committed review and no private fields',
+  async (action) => {
+    await pending()
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+    await Promise.all(Array.from({ length: 12 }, () => review(action)))
+    await review(action)
+    await Promise.all(tasks)
+    expect((await state()).request?.status).toBe(
+      action === 'approve' ? 'approved' : 'rejected',
+    )
+    expect(info.mock.calls).toEqual([
+      [
+        {
+          event:
+            action === 'approve'
+              ? 'cancellation.approved'
+              : 'cancellation.rejected',
+          outcome: 'success',
+        },
+      ],
+      ...(action === 'approve'
+        ? [
+            [
+              {
+                event: 'telegram.sent',
+                outcome: 'success',
+                notificationType: 'reservation_cancelled',
+              },
+            ],
+          ]
+        : []),
+    ])
+  },
+)
+
+test('direct cancellation and approval racing log one approval transition', async () => {
+  await pending()
+  const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+  await Promise.all(
+    Array.from({ length: 12 }, (_, i) => (i % 2 ? review() : cancel())),
+  )
+  await Promise.all(tasks)
+  expect((await state()).request?.status).toBe('approved')
+  expect(info.mock.calls).toEqual([
+    [{ event: 'cancellation.approved', outcome: 'success' }],
+    [
+      {
+        event: 'telegram.sent',
+        outcome: 'success',
+        notificationType: 'reservation_cancelled',
+      },
+    ],
+  ])
+})
+
+test('logging failures preserve cancellation writes and Telegram delivery', async () => {
+  for (const level of ['info', 'warn', 'error'] as const) {
+    vi.spyOn(console, level).mockImplementation(() => {
+      throw new Error('console unavailable')
+    })
+  }
+  expect((await create()).status).toBe(201)
+  const id = (await state()).request!.id
+  expect((await call(`admin/cancellation-requests/${id}/approve`)).status).toBe(
+    200,
+  )
+  await Promise.all(tasks)
+  expect((await state()).booking?.status).toBe('cancelled')
+  expect(fetchMock).toHaveBeenCalledTimes(2)
 })

@@ -1,3 +1,4 @@
+import { logEvent } from './logging.ts'
 import type {
   BookingNotification,
   CancellationRequestNotification,
@@ -100,11 +101,17 @@ export async function cancellationRequests(
         .bind(reservationId),
     ])
     if (insert.meta.changes === 1) {
+      logEvent({ event: 'cancellation.requested', outcome: 'success' })
       // The batch has committed; only its winning insert schedules delivery.
       try {
         onCreated?.({ ...lookup.results[0], reason })
       } catch {
-        console.error('Cancellation request notification scheduling failed')
+        logEvent({
+          event: 'telegram.failed',
+          outcome: 'failure',
+          notificationType: 'cancellation_requested',
+          reason: 'scheduling',
+        })
       }
       return Response.json({ status: 'pending' }, { status: 201 })
     }
@@ -117,7 +124,7 @@ export async function cancellationRequests(
       409,
     )
   } catch {
-    // Do not log explanations or private request data.
+    logEvent({ event: 'database.error', outcome: 'failure' })
     return error('INTERNAL_ERROR', 'Internal server error', 500)
   }
 }

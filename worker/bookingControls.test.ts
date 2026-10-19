@@ -3,10 +3,9 @@ import { URL as NodeURL } from 'node:url'
 import { afterAll, beforeAll, beforeEach, expect, test, vi } from 'vitest'
 import { getPlatformProxy, type PlatformProxy } from 'wrangler'
 import worker from './index.ts'
-import type { AdminEnv } from './admin.ts'
 
 let platform: PlatformProxy<Env>
-let env: Env & AdminEnv
+let env: Parameters<typeof worker.fetch>[1]
 let cookie: string
 const origin = 'https://lounge.example'
 const payload = {
@@ -377,4 +376,27 @@ test('manual cancellation races with reviews and public requests without leaving
         .all(),
     ).toMatchObject({ results: [] })
   }
+})
+
+test('concurrent technical block creation/removal logs each committed transition once', async () => {
+  const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+  const key = crypto.randomUUID()
+  const responses = await Promise.all(
+    Array.from({ length: 8 }, () =>
+      call('blocks', 'POST', payload, { 'Idempotency-Key': key }),
+    ),
+  )
+  expect(responses.every((r) => r.status === 201)).toBe(true)
+  const { reservation } = (await responses[0].json()) as {
+    reservation: { id: string }
+  }
+  const removed = await Promise.all(
+    Array.from({ length: 8 }, () => call(`blocks/${reservation.id}`, 'DELETE')),
+  )
+  expect(removed.every((r) => r.status === 200)).toBe(true)
+  expect(info.mock.calls).toEqual([
+    [{ event: 'technical_block.created', outcome: 'success' }],
+    [{ event: 'technical_block.removed', outcome: 'success' }],
+  ])
+  expect((await state())[0].status).toBe('cancelled')
 })
