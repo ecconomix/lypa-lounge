@@ -4,6 +4,7 @@
   "main": "worker/index.ts",
   "compatibility_date": "2026-10-12",
   "workers_dev": true,
+  "preview_urls": false,
   "build": {
     "command": "npm run build",
   },
