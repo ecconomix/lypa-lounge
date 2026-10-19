@@ -1225,10 +1225,16 @@ exceptions can use the uploaded maps. See [source maps](https://developers.cloud
    from the official JavaScript snippet. Use manual snippet installation; avoid
    automatic injection as well as this integration, which would double-count.
    See [Cloudflare setup](https://developers.cloudflare.com/web-analytics/get-started/).
-2. Set `VITE_CLOUDFLARE_WEB_ANALYTICS_TOKEN` in an ignored `.env.production.local`
-   file at the repository root to that actual token. It is a **public browser
-   identifier**, not a Worker secret; never put any password or Telegram setting
-   in this variable. Do not use `.dev.vars` for it.
+2. Store `VITE_CLOUDFLARE_WEB_ANALYTICS_TOKEN` in the Git-tracked `.env.production`
+   file at the repository root. The token is a **public browser identifier**,
+   embedded by Vite during production builds, so it is safe to commit. This makes
+   the analytics configuration reproducible when building and deploying manually
+   with Wrangler from any computer after cloning the repository and installing
+   dependencies. Keep only this public token in `.env.production`; never add
+   passwords, Telegram settings or other secrets. `.env.local`, local production
+   overrides and `.dev.vars` remain ignored. Avoid local or shell overrides of
+   this token when building the shared production configuration. Worker secrets
+   remain managed separately through Cloudflare.
 3. Rebuild and deploy only when separately authorized. The official deferred
    `https://static.cloudflareinsights.com/beacon.min.js` script is loaded once
    in production builds only, when the token is a valid 32-character hexadecimal
