@@ -551,21 +551,8 @@ rows/availability and continued overlap rejection. React DOM tests cover inline
 validation, loading/duplicate locking, trimmed payload, success, uncertain retry,
 and Ukrainian conflict/not-found feedback. Run the full validation commands above.
 
-If `.dev.vars` is present, the current Wrangler type generator makes its admin
-fields required in generated `Env`; existing M3.1 test fixtures omit these fields,
-so `npm run typecheck` reports errors in those fixtures. To check types without
-local secret-derived fields (without editing `.dev.vars`), run:
-
-```sh
-npm run types:worker -- --env-file /dev/null
-npm exec tsc -- -b
-npm exec tsc -- -p worker/tsconfig.worker.json
-npm exec tsc -- -p worker/tsconfig.test.json
-```
-
-The plain typecheck command regenerates types and will reproduce that existing
-local-configuration issue. No authentication or type-generation setup is changed
-by M3.2.
+Worker type generation is independent of local secrets as of M4.1; use
+`npm run typecheck` with or without `.dev.vars`.
 
 For manual verification (local only):
 
@@ -640,9 +627,8 @@ React DOM tests cover loading/details, empty state, approval confirmation,
 rejection, disabled actions, refresh, errors/retry, session expiry, and confirmed
 success when refresh fails. Browser testing is performed manually by the owner.
 
-Use Node 24 for the project tools. The `.dev.vars`-derived required `Env` issue
-and secret-free typecheck commands documented under M3.2 still apply; M3.3 does
-not alter type generation. No dependencies, remote resources, or deployment are
+Use Node 24 for the project tools. Worker type generation is independent of
+local secrets as of M4.1. No dependencies, remote resources, or deployment are
 added. The schema has one combined name/apartment field, so separate name and
 apartment values cannot be displayed. The queue refreshes on load and after a
 successful review, or manually; it has no polling or live updates. Requester
@@ -721,17 +707,8 @@ the installed Vite/Vitest tools. Run `npm run format` before final checks, then
 `npm run format:check`. D1 integration tests need permission to bind localhost
 sockets; all bindings are ephemeral/local with remote bindings disabled.
 
-The existing `.dev.vars` issue documented under M3.2 still reproduces: plain
-`npm run typecheck` generates required secret fields in `Env`, conflicting with
-existing optional/missing-secret test fixtures. Do not edit or expose secrets.
-Use the documented alternative to verify frontend, Vite, Worker and test types:
-
-```sh
-npm run types:worker -- --env-file /dev/null
-npm exec tsc -- -b
-npm exec tsc -- -p worker/tsconfig.worker.json
-npm exec tsc -- -p worker/tsconfig.test.json
-```
+Worker type generation is independent of local secrets as of M4.1. The standard
+`npm run typecheck` checks frontend, Vite, Worker, tests, and the Telegram script.
 
 In a restricted filesystem, `WRANGLER_LOG_PATH=/tmp/lypa-wrangler.log` keeps
 Wrangler logs in a writable directory. These alternatives do not change runtime
@@ -755,3 +732,90 @@ configuration. No browser testing is performed by the agent.
 9. Reload both pages and verify persisted bookings, blocks and cancellations.
 10. Log out or expire the session; protected lists and mutations must deny access.
     Try an absent/wrong Origin on mutations and confirm no database changes.
+
+## M4.1 — Telegram bot and secrets
+
+`worker/telegram.ts` provides a server-only native-fetch client:
+`createTelegramClient(env.TELEGRAM_BOT_TOKEN).sendMessage(chatId, text)`.
+It sends plain text using Telegram's [sendMessage API](https://core.telegram.org/bots/api#sendmessage).
+HTTP failures, API failures, invalid JSON/envelopes, and network failures reject
+with sanitized errors. Raw fetch errors, Telegram descriptions, token-bearing
+URLs, tokens, chat IDs, and message bodies are never logged by the client.
+There are no automatic sends, public test endpoints, notifications, webhooks,
+commands, retries, queues, scheduling, or database/frontend changes.
+
+### Local configuration and delivery verification
+
+Use Node 24. Add these fields to the existing root `.dev.vars`, preserving
+`ADMIN_PASSWORD`, `ADMIN_ORIGIN`, and any other existing values. Replace these
+placeholders locally; never commit real credentials or chat IDs:
+
+```dotenv
+TELEGRAM_BOT_TOKEN="replace-with-bot-token"
+TELEGRAM_GROUP_CHAT_ID="replace-with-test-group-chat-id"
+TELEGRAM_ADMIN_CHAT_ID="replace-with-administrator-private-chat-id"
+```
+
+`.dev.vars*` is already ignored by Git. Do not prefix these names with `VITE_`,
+put them in frontend code, or place their values in `wrangler.jsonc`.
+Wrangler loads `.dev.vars` for local Worker development. The local-only script
+uses Node's native `--env-file=.dev.vars` loader; use simple `KEY="value"` entries.
+Node gives existing shell environment variables precedence over this file, so
+unset any stale `TELEGRAM_*` exports before testing. No Cloudflare login, running
+Worker, database migration, or frontend server is needed for these commands.
+
+Each command sends one fixed test message to the selected configured chat:
+
+```sh
+npm run telegram:test -- group
+npm run telegram:test -- admin
+```
+
+Confirm the corresponding `Lypa Lounge M4.1: group delivery test.` or
+`Lypa Lounge M4.1: admin delivery test.` message appears in Telegram. The script
+prints acceptance only after a successful Telegram response; exit code 1 means
+failure. API acceptance does not prove that a person has seen the message.
+The bot must belong to the test group and be allowed to send messages; the
+administrator must have started the bot privately. On HTTP 401 check the token;
+on 400/403 check the selected chat ID, membership, send permissions, and whether
+the administrator blocked the bot. Verify both chats manually; mocked unit tests
+never contact Telegram. Network failure may occur after delivery; manually
+rerunning the command can produce a duplicate.
+
+### Production secrets (manual setup)
+
+For the intended Cloudflare Worker/account, enter each value interactively:
+
+```sh
+npx wrangler secret put TELEGRAM_BOT_TOKEN
+npx wrangler secret put TELEGRAM_GROUP_CHAT_ID
+npx wrangler secret put TELEGRAM_ADMIN_CHAT_ID
+```
+
+These commands change remote Worker secrets; run them only when configuring
+production deliberately. They preserve existing secrets. No values belong in
+source control or command-line arguments. This task does not run these commands,
+provision resources, or deploy. The local verification script reads local
+configuration only; production secret setup alone sends no messages.
+
+`TelegramEnv` extends the Worker handler's existing `Env & AdminEnv` bindings
+with optional Telegram secret fields, following the admin configuration pattern.
+Missing Telegram configuration fails only when sending, leaving existing routes
+usable. `npm run types:worker` uses an empty env file for deterministic generated
+D1/runtime types without inferring required fields from developer credentials;
+secret types remain explicit in `AdminEnv` and `TelegramEnv`. This changes type
+generation only, not local or production runtime loading.
+
+### Automated verification
+
+```sh
+npm run format
+npm test
+npm run typecheck
+npm run build
+npm run lint
+```
+
+Focused client tests: `npm test -- worker/telegram.test.ts`. The local script is
+included in the Node-aware Worker test TypeScript project. No new dependencies
+are required. Live delivery and production configuration require owner verification.

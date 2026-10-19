@@ -2,9 +2,13 @@ import { admin, type AdminEnv } from './admin.ts'
 import { availability } from './availability.ts'
 import { reservations } from './reservations.ts'
 import { cancellationRequests } from './cancellationRequests.ts'
+import type { TelegramEnv } from './telegram.ts'
 
 export default {
-  async fetch(request: Request, env: Env & AdminEnv): Promise<Response> {
+  async fetch(
+    request: Request,
+    env: Env & AdminEnv & TelegramEnv,
+  ): Promise<Response> {
     try {
       const { pathname } = new URL(request.url)
 
