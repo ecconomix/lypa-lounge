@@ -1,3 +1,4 @@
+import { logEvent } from './logging.ts'
 import type { CancellationNotification } from './telegramMessages.ts'
 
 function reply(status: number, body: unknown): Response {
@@ -80,6 +81,15 @@ export async function cancellationReview(
         reviewedAt: number | null
       }
     >(statements)
+    if (results[0].meta.changes === 1) {
+      logEvent({
+        event:
+          status === 'approved'
+            ? 'cancellation.approved'
+            : 'cancellation.rejected',
+        outcome: 'success',
+      })
+    }
     const review = results.at(-1)!.results[0]
     if (!review) return reply(404, { error: 'Cancellation request not found' })
     if (review.status !== status)
@@ -94,7 +104,12 @@ export async function cancellationReview(
           endTime: review.endTime,
         })
       } catch {
-        console.error('Cancellation notification scheduling failed')
+        logEvent({
+          event: 'telegram.failed',
+          outcome: 'failure',
+          notificationType: 'reservation_cancelled',
+          reason: 'scheduling',
+        })
       }
     }
     return reply(200, {
@@ -105,7 +120,7 @@ export async function cancellationReview(
       },
     })
   } catch {
-    // Review explanations and database details must remain private.
+    logEvent({ event: 'database.error', outcome: 'failure' })
     return reply(500, { error: 'Cancellation review unavailable' })
   }
 }

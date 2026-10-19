@@ -12,8 +12,6 @@ import {
 import { getPlatformProxy, type PlatformProxy } from 'wrangler'
 import worker from './index.ts'
 import { reservations } from './reservations.ts'
-import type { TelegramEnv } from './telegram.ts'
-import type { AdminEnv } from './admin.ts'
 
 let platform: PlatformProxy<Env> | undefined
 let env: Env
@@ -82,7 +80,7 @@ function request(
   body: unknown = payload,
   key = crypto.randomUUID(),
   headers: Record<string, string> = {},
-  bindings: Env & TelegramEnv & AdminEnv = env,
+  bindings: Parameters<typeof worker.fetch>[1] = env,
   context?: Pick<ExecutionContext, 'waitUntil'>,
 ) {
   return worker.fetch(
@@ -279,12 +277,12 @@ test.each(['network', 'http', 'api'])(
     expect(await count()).toBe(1)
     expect(log.mock.calls).toEqual([
       [
-        'Telegram booking notification failed',
-        failure === 'http'
-          ? 'HTTP 403'
-          : failure === 'network'
-            ? 'network'
-            : 'delivery error',
+        {
+          event: 'telegram.failed',
+          outcome: 'failure',
+          notificationType: 'reservation_created',
+          reason: 'delivery',
+        },
       ],
     ])
     expect(await (await book(payload, key)).json()).toEqual(body)
@@ -303,7 +301,16 @@ test('notification scheduling failure preserves committed booking', async () => 
   ).toBe(201)
   expect(await count()).toBe(1)
   await Promise.all(tasks)
-  expect(log.mock.calls).toEqual([['Booking notification scheduling failed']])
+  expect(log.mock.calls).toEqual([
+    [
+      {
+        event: 'telegram.failed',
+        outcome: 'failure',
+        notificationType: 'reservation_created',
+        reason: 'scheduling',
+      },
+    ],
+  ])
 })
 
 interface StoredReservation {
@@ -863,7 +870,10 @@ for (const stage of ['lookup', 'write'])
     expect(await response.json()).toEqual({
       error: { code: 'INTERNAL_ERROR', message: 'Internal server error' },
     })
-    expect(log).toHaveBeenCalledWith('Worker request failed', failure)
+    expect(log).toHaveBeenCalledWith({
+      event: 'database.error',
+      outcome: 'failure',
+    })
     expect(await count()).toBe(0)
   })
 
@@ -887,4 +897,93 @@ test('actual D1 write failure returns a safe 500 without consuming the key', asy
   }
   expect((await request(payload, key)).status).toBe(201)
   expect(await count()).toBe(1)
+})
+
+test('structured creation and conflict events follow committed inserts, never replays', async () => {
+  const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  const key = crypto.randomUUID()
+  const responses = await Promise.all(
+    Array.from({ length: 8 }, () => request(payload, key)),
+  )
+  expect(responses.every((r) => r.status === 201)).toBe(true)
+  expect((await request(payload, key)).status).toBe(201)
+  expect(info.mock.calls).toEqual([
+    [{ event: 'reservation.created', outcome: 'success' }],
+  ])
+  expect(await count()).toBe(1)
+  expect((await request()).status).toBe(409)
+  expect(
+    (await request({ ...payload, nameOrApartment: 'private-other' }, key))
+      .status,
+  ).toBe(409)
+  expect(
+    warn.mock.calls.filter(([entry]) => entry.event === 'reservation.conflict'),
+  ).toEqual([
+    [{ event: 'reservation.conflict', outcome: 'conflict' }],
+    [{ event: 'reservation.conflict', outcome: 'conflict' }],
+  ])
+  expect(info).toHaveBeenCalledTimes(1)
+})
+
+test('throwing console methods cannot change committed booking, replay, conflict or error responses', async () => {
+  for (const level of ['info', 'warn', 'error'] as const) {
+    vi.spyOn(console, level).mockImplementation(() => {
+      throw new Error('logging unavailable')
+    })
+  }
+  const key = crypto.randomUUID()
+  expect((await request(payload, key)).status).toBe(201)
+  expect((await request(payload, key)).status).toBe(201)
+  expect((await request()).status).toBe(409)
+  expect(await count()).toBe(1)
+  const db = {
+    prepare() {
+      throw new Error('private SQL')
+    },
+  } as unknown as D1Database
+  expect(
+    (await request(payload, crypto.randomUUID(), {}, { ...env, DB: db }))
+      .status,
+  ).toBe(500)
+  expect(await count()).toBe(1)
+})
+
+test('Telegram acceptance and missing configuration use safe structured delivery events', async () => {
+  const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  const { book, tasks, bindings, context } = notifications()
+  expect((await book()).status).toBe(201)
+  await Promise.all(tasks)
+  expect(info.mock.calls).toEqual([
+    [{ event: 'reservation.created', outcome: 'success' }],
+    [
+      {
+        event: 'telegram.sent',
+        outcome: 'success',
+        notificationType: 'reservation_created',
+      },
+    ],
+  ])
+  expect(
+    (
+      await request(
+        { ...payload, date: '2026-10-21' },
+        crypto.randomUUID(),
+        {},
+        { ...bindings, TELEGRAM_BOT_TOKEN: '' },
+        context,
+      )
+    ).status,
+  ).toBe(201)
+  expect(warn.mock.calls).toEqual([
+    [
+      {
+        event: 'telegram.skipped',
+        outcome: 'skipped',
+        notificationType: 'reservation_created',
+        reason: 'missing_configuration',
+      },
+    ],
+  ])
 })

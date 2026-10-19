@@ -1,3 +1,4 @@
+import { logEvent, type NotificationType } from './logging.ts'
 import { admin, type AdminEnv } from './admin.ts'
 import { availability } from './availability.ts'
 import { reservations } from './reservations.ts'
@@ -12,28 +13,66 @@ import {
 export default {
   async fetch(
     request: Request,
-    env: Env & AdminEnv & TelegramEnv,
+    env: Omit<Env, keyof AdminEnv> & AdminEnv & TelegramEnv,
     ctx?: Pick<ExecutionContext, 'waitUntil'>,
   ): Promise<Response> {
     try {
       const { pathname } = new URL(request.url)
-      const notifyCancellation = (
+      const notify = (
+        notificationType: NotificationType,
         chatId: string | undefined,
         text: () => string,
       ) => {
-        if (!ctx || !env.TELEGRAM_BOT_TOKEN?.trim() || !chatId?.trim()) return
-        const task = createTelegramClient(env.TELEGRAM_BOT_TOKEN)
-          .sendMessage(chatId, text(), { parseMode: 'HTML' })
-          .catch(() => {
-            // Fixed text only: no credentials, destinations or private data.
-            console.error('Telegram cancellation notification failed')
+        if (!env.TELEGRAM_BOT_TOKEN?.trim() || !chatId?.trim()) {
+          logEvent({
+            event: 'telegram.skipped',
+            outcome: 'skipped',
+            notificationType,
+            reason: 'missing_configuration',
           })
-        ctx.waitUntil(task)
+          return
+        }
+        if (!ctx) {
+          logEvent({
+            event: 'telegram.skipped',
+            outcome: 'skipped',
+            notificationType,
+            reason: 'missing_context',
+          })
+          return
+        }
+        try {
+          const task = createTelegramClient(env.TELEGRAM_BOT_TOKEN)
+            .sendMessage(chatId, text(), { parseMode: 'HTML' })
+            .then(() => {
+              logEvent({
+                event: 'telegram.sent',
+                outcome: 'success',
+                notificationType,
+              })
+            })
+            .catch(() => {
+              logEvent({
+                event: 'telegram.failed',
+                outcome: 'failure',
+                notificationType,
+                reason: 'delivery',
+              })
+            })
+          ctx.waitUntil(task)
+        } catch {
+          logEvent({
+            event: 'telegram.failed',
+            outcome: 'failure',
+            notificationType,
+            reason: 'scheduling',
+          })
+        }
       }
 
       if (pathname === '/api/admin' || pathname.startsWith('/api/admin/')) {
         return await admin(request, env, (reservation) => {
-          notifyCancellation(env.TELEGRAM_GROUP_CHAT_ID, () =>
+          notify('reservation_cancelled', env.TELEGRAM_GROUP_CHAT_ID, () =>
             formatCancellationNotification(reservation, env.ADMIN_ORIGIN),
           )
         })
@@ -41,33 +80,9 @@ export default {
 
       if (pathname === '/api/reservations') {
         return await reservations(request, env.DB, 'booking', (booking) => {
-          if (
-            !ctx ||
-            !env.TELEGRAM_BOT_TOKEN?.trim() ||
-            !env.TELEGRAM_GROUP_CHAT_ID?.trim()
+          notify('reservation_created', env.TELEGRAM_GROUP_CHAT_ID, () =>
+            formatBookingNotification(booking, env.ADMIN_ORIGIN),
           )
-            return
-          const notification = createTelegramClient(env.TELEGRAM_BOT_TOKEN)
-            .sendMessage(
-              env.TELEGRAM_GROUP_CHAT_ID,
-              formatBookingNotification(booking, env.ADMIN_ORIGIN),
-              { parseMode: 'HTML' },
-            )
-            .catch((error: unknown) => {
-              // Never log errors, credentials, destinations or booking data.
-              const message = error instanceof Error ? error.message : ''
-              const status =
-                /^Telegram sendMessage failed \(HTTP ([1-5]\d{2})\)$/.exec(
-                  message,
-                )?.[1]
-              const reason = status
-                ? `HTTP ${status}`
-                : message === 'Telegram sendMessage network request failed'
-                  ? 'network'
-                  : 'delivery error'
-              console.error('Telegram booking notification failed', reason)
-            })
-          ctx.waitUntil(notification)
         })
       }
 
@@ -79,7 +94,7 @@ export default {
           env.DB,
           cancellation[1],
           (created) => {
-            notifyCancellation(env.TELEGRAM_ADMIN_CHAT_ID, () =>
+            notify('cancellation_requested', env.TELEGRAM_ADMIN_CHAT_ID, () =>
               formatCancellationRequestNotification(created, env.ADMIN_ORIGIN),
             )
           },
@@ -98,13 +113,21 @@ export default {
           )
         }
 
-        await env.DB.prepare('SELECT 1').first()
+        try {
+          await env.DB.prepare('SELECT 1').first()
+        } catch {
+          logEvent({ event: 'database.error', outcome: 'failure' })
+          return Response.json(
+            { error: 'Internal server error' },
+            { status: 500 },
+          )
+        }
         return Response.json({ status: 'ok' })
       }
 
       return Response.json({ error: 'Not found' }, { status: 404 })
-    } catch (error) {
-      console.error('Worker request failed', error)
+    } catch {
+      logEvent({ event: 'api.unexpected_error', outcome: 'failure' })
       return Response.json({ error: 'Internal server error' }, { status: 500 })
     }
   },

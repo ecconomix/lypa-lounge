@@ -287,5 +287,7 @@ test('database failures do not expose or log authentication inputs', async () =>
   )
   expect(response.status).toBe(500)
   expect(await response.json()).toEqual({ error: 'Authentication unavailable' })
-  expect(log).not.toHaveBeenCalled()
+  expect(log.mock.calls).toEqual([
+    [{ event: 'api.unexpected_error', outcome: 'failure' }],
+  ])
 })

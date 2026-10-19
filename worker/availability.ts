@@ -1,3 +1,4 @@
+import { logEvent } from './logging.ts'
 interface PublicReservation {
   kind: 'booking' | 'block'
   id: string
@@ -100,8 +101,8 @@ export async function availability(
         kind === 'block' ? { ...row, isTechnicalBlock: true } : row,
       ),
     })
-  } catch (error) {
-    console.error('Worker request failed', error)
+  } catch {
+    logEvent({ event: 'database.error', outcome: 'failure' })
     return jsonError('INTERNAL_ERROR', 'Internal server error', 500)
   }
 }

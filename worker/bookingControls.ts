@@ -1,3 +1,4 @@
+import { logEvent } from './logging.ts'
 import type { CancellationNotification } from './telegramMessages.ts'
 import { reservations } from './reservations.ts'
 
@@ -114,6 +115,12 @@ export async function bookingControls(
     const results = await db.batch<
       CancellationNotification & { id: string; status: string }
     >(statements)
+    if (kind === 'block' && results[0].meta.changes === 1) {
+      logEvent({ event: 'technical_block.removed', outcome: 'success' })
+    }
+    if (kind === 'booking' && results[1].meta.changes === 1) {
+      logEvent({ event: 'cancellation.approved', outcome: 'success' })
+    }
     const row = results.at(-1)!.results[0]
     if (row && kind === 'booking' && results[0].meta.changes === 1) {
       try {
@@ -123,13 +130,19 @@ export async function bookingControls(
           endTime: row.endTime,
         })
       } catch {
-        console.error('Cancellation notification scheduling failed')
+        logEvent({
+          event: 'telegram.failed',
+          outcome: 'failure',
+          notificationType: 'reservation_cancelled',
+          reason: 'scheduling',
+        })
       }
     }
     return row
       ? reply(200, { reservation: { id: row.id, status: row.status } })
       : reply(404, { error: 'Not found' })
   } catch {
+    logEvent({ event: 'database.error', outcome: 'failure' })
     return reply(500, { error: 'Booking controls unavailable' })
   }
 }

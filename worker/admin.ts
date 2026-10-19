@@ -1,3 +1,4 @@
+import { logEvent } from './logging.ts'
 import type { CancellationNotification } from './telegramMessages.ts'
 import { bookingControls } from './bookingControls.ts'
 import { cancellationReview } from './cancellationReview.ts'
@@ -299,6 +300,7 @@ export async function admin(
       )
     return reply(404, { error: 'Not found' })
   } catch {
+    logEvent({ event: 'api.unexpected_error', outcome: 'failure' })
     return reply(500, { error: 'Authentication unavailable' })
   }
 }

@@ -3,10 +3,9 @@ import { URL as NodeURL } from 'node:url'
 import { afterAll, beforeAll, beforeEach, expect, test, vi } from 'vitest'
 import { getPlatformProxy, type PlatformProxy } from 'wrangler'
 import worker from './index.ts'
-import type { AdminEnv } from './admin.ts'
 
 let platform: PlatformProxy<Env>
-let env: Env & AdminEnv
+let env: Parameters<typeof worker.fetch>[1]
 let cookie: string
 const origin = 'https://lounge.example'
 beforeAll(async () => {

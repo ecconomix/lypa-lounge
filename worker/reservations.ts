@@ -1,3 +1,4 @@
+import { logEvent } from './logging.ts'
 interface ReservationInput {
   date: string
   startTime: string
@@ -109,12 +110,18 @@ function bookable(input: ReservationInput, now: Date): boolean {
   return (hour * 60 + minute) * 60_000 >= currentMilliseconds
 }
 
-function replay(existing: Reservation, input: ReservationInput): Response {
+function replay(
+  existing: Reservation,
+  input: ReservationInput,
+  kind: 'booking' | 'block',
+): Response {
   if (
     (Object.keys(input) as (keyof ReservationInput)[]).some(
       (key) => existing[key] !== input[key],
     )
   ) {
+    if (kind === 'booking')
+      logEvent({ event: 'reservation.conflict', outcome: 'conflict' })
     return jsonError(
       'IDEMPOTENCY_CONFLICT',
       'Idempotency key was already used',
@@ -167,7 +174,7 @@ export async function reservations(
       .bind(key.toLowerCase(), kind)
     // Replay before time-sensitive checks: a consumed key survives expiry/cancellation.
     const existing = await lookup.first<Reservation>()
-    if (existing) return replay(existing, input)
+    if (existing) return replay(existing, input, kind)
     const now = new Date()
     if (!bookable(input, now)) return invalid()
     const timestamp = Math.floor(now.getTime() / 1000)
@@ -206,6 +213,15 @@ export async function reservations(
     if (result.results[0]) {
       // The batch has committed. Its write count distinguishes a new row from
       // concurrent idempotent replays, which also return 201.
+      if (insert.meta.changes === 1) {
+        logEvent({
+          event:
+            kind === 'booking'
+              ? 'reservation.created'
+              : 'technical_block.created',
+          outcome: 'success',
+        })
+      }
       if (insert.meta.changes === 1 && kind === 'booking') {
         try {
           onBookingCreated?.({
@@ -216,18 +232,25 @@ export async function reservations(
           })
         } catch {
           // Notification scheduling must never change a committed booking.
-          console.error('Booking notification scheduling failed')
+          logEvent({
+            event: 'telegram.failed',
+            outcome: 'failure',
+            notificationType: 'reservation_created',
+            reason: 'scheduling',
+          })
         }
       }
-      return replay(result.results[0], input)
+      return replay(result.results[0], input, kind)
     }
+    if (kind === 'booking')
+      logEvent({ event: 'reservation.conflict', outcome: 'conflict' })
     return jsonError(
       'RESERVATION_CONFLICT',
       'Selected time is no longer available',
       409,
     )
-  } catch (error) {
-    console.error('Worker request failed', error)
+  } catch {
+    logEvent({ event: 'database.error', outcome: 'failure' })
     return jsonError('INTERNAL_ERROR', 'Internal server error', 500)
   }
 }

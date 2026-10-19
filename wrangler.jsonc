@@ -3,6 +3,14 @@
   "name": "lypa-lounge-api",
   "main": "worker/index.ts",
   "compatibility_date": "2026-10-12",
+  "upload_source_maps": true,
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+    "redact_query_string": true,
+    "logs": { "enabled": true, "invocation_logs": true },
+    "issues": { "enabled": true },
+  },
   "workers_dev": true,
   "preview_urls": false,
   "build": {

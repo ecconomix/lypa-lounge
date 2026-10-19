@@ -77,7 +77,11 @@ afterAll(async () => {
   await platform?.dispose()
 })
 
-function request(query: string, method = 'GET', bindings = env) {
+function request(
+  query: string,
+  method = 'GET',
+  bindings: Pick<Env, 'DB'> = env,
+) {
   return worker.fetch(
     new Request(`http://localhost/api/availability${query}`, { method }),
     bindings,
