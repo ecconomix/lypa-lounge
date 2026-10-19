@@ -1,6 +1,7 @@
 import { admin, type AdminEnv } from './admin.ts'
 import { availability } from './availability.ts'
 import { reservations } from './reservations.ts'
+import { cancellationRequests } from './cancellationRequests.ts'
 
 export default {
   async fetch(request: Request, env: Env & AdminEnv): Promise<Response> {
@@ -13,6 +14,12 @@ export default {
 
       if (pathname === '/api/reservations') {
         return await reservations(request, env.DB)
+      }
+
+      const cancellation =
+        /^\/api\/reservations\/([^/]+)\/cancellation-requests$/.exec(pathname)
+      if (cancellation) {
+        return await cancellationRequests(request, env.DB, cancellation[1])
       }
 
       if (pathname === '/api/availability') {

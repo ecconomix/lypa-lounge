@@ -50,6 +50,7 @@ function BookingPage() {
           <BookingList
             selectedDate={selectedDate}
             reservations={reservations}
+            onRefresh={() => void refresh(true)}
           />
         </>
       )}

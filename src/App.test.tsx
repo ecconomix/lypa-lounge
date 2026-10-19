@@ -441,3 +441,20 @@ describe('lifecycle', () => {
     root = createRoot(host)
   })
 })
+
+it('preserves confirmed cancellation-request success when availability refresh fails', async () => {
+  fetchMock.mockResolvedValueOnce(response([booking]))
+  await mount()
+  await click(host.querySelectorAll<HTMLButtonElement>('.calendar-day')[2])
+  await click(findButton('Запросити скасування'))
+  host.querySelector('textarea')!.value = 'Я з квартири 12, змінилися плани.'
+  fetchMock.mockResolvedValueOnce(
+    Response.json({ status: 'pending' }, { status: 201 }),
+  )
+  fetchMock.mockRejectedValueOnce(new TypeError('offline'))
+  await submit()
+  expect(host.textContent).toContain('Запит надіслано адміністратору')
+  expect(host.textContent).toContain('Бронювання залишається активним')
+  expect(host.textContent).toContain('Не вдалося оновити календар')
+  expect(host.querySelector('.booking-status')?.textContent).toBe('Зайнято')
+})
