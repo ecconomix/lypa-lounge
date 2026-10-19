@@ -1,3 +1,5 @@
+import type { CancellationNotification } from './telegramMessages.ts'
+
 function reply(status: number, body: unknown): Response {
   return Response.json(body, {
     status,
@@ -11,6 +13,7 @@ export async function cancellationReview(
   db: D1Database,
   id?: string,
   action?: string,
+  onCancelled?: (reservation: CancellationNotification) => void,
 ): Promise<Response> {
   const method = id ? 'POST' : 'GET'
   if (request.method !== method) {
@@ -63,21 +66,44 @@ export async function cancellationReview(
     statements.push(
       db
         .prepare(
-          `SELECT id, status, reviewed_at AS reviewedAt
-      FROM cancellation_requests WHERE id = ?`,
+          `SELECT c.id, c.status, c.reviewed_at AS reviewedAt,
+        r.date, r.start_time AS startTime, r.end_time AS endTime
+      FROM cancellation_requests c JOIN reservations r ON r.id = c.reservation_id
+      WHERE c.id = ?`,
         )
         .bind(id),
     )
-    const results = await db.batch<{
-      id: string
-      status: string
-      reviewedAt: number | null
-    }>(statements)
+    const results = await db.batch<
+      CancellationNotification & {
+        id: string
+        status: string
+        reviewedAt: number | null
+      }
+    >(statements)
     const review = results.at(-1)!.results[0]
     if (!review) return reply(404, { error: 'Cancellation request not found' })
     if (review.status !== status)
       return reply(409, { error: 'Cancellation request cannot be processed' })
-    return reply(200, { request: review })
+    // The reservation UPDATE, rather than the review status, proves an actual
+    // cancellation. D1 serializes this batch against direct admin cancellations.
+    if (status === 'approved' && results[1].meta.changes === 1) {
+      try {
+        onCancelled?.({
+          date: review.date,
+          startTime: review.startTime,
+          endTime: review.endTime,
+        })
+      } catch {
+        console.error('Cancellation notification scheduling failed')
+      }
+    }
+    return reply(200, {
+      request: {
+        id: review.id,
+        status: review.status,
+        reviewedAt: review.reviewedAt,
+      },
+    })
   } catch {
     // Review explanations and database details must remain private.
     return reply(500, { error: 'Cancellation review unavailable' })

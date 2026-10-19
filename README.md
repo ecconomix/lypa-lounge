@@ -910,3 +910,98 @@ The Telegram client uses `redirect: 'manual'`: Cloudflare Workers does not
 support `redirect: 'error'`, even though Node fetch does. Redirect responses
 are rejected as HTTP failures without following their destination. This keeps
 Node-script and Worker delivery compatible while preserving redirect protection.
+
+## M4.3 — Telegram cancellation notifications
+
+A newly persisted resident cancellation request schedules one private Ukrainian
+HTML message to `TELEGRAM_ADMIN_CHAT_ID`. It includes the booking date, time range,
+name/apartment and trimmed cancellation reason. A valid public HTTPS
+`ADMIN_ORIGIN` adds a link to `/admin`; absent, local or invalid origins omit it.
+The reason is sent only to the configured admin destination, never to the group.
+Keep `TELEGRAM_ADMIN_CHAT_ID` set to the administrator's private chat, distinct from
+the residents' group.
+
+Example private message (rendered HTML):
+
+```text
+🌿 Липа Lounge | Запит на скасування
+
+📅 Дата: вівторок, 20 жовтня 2026 р.
+🕒 Час: 18:00–20:00
+👤 Ім’я / квартира: Квартира 12
+📝 Причина: Змінилися плани, просимо скасувати.
+
+🔐 Переглянути запити
+```
+
+An actual booking cancellation schedules one message to `TELEGRAM_GROUP_CHAT_ID`,
+for both approval of a resident's request and direct administrator cancellation.
+It includes only the date, time range, availability statement and optional public
+calendar link. It excludes the reason, name/apartment, description and internal IDs.
+Rejection sends no notification. Removing a technical block sends none either.
+
+Example group message (rendered HTML):
+
+```text
+🌿 Липа Lounge | Бронювання скасовано
+
+📅 Дата: вівторок, 20 жовтня 2026 р.
+🕒 Час: 18:00–20:00
+
+✅ Цей час знову доступний для бронювання.
+
+📆 Відкрити календар
+```
+
+Both messages reuse `worker/telegramMessages.ts`, its HTML escaping, Ukrainian civil
+date formatting and public-origin validation. Delivery reuses `worker/telegram.ts`
+and `ExecutionContext.waitUntil`. The existing D1 batches retain their conditional
+writes and transaction ordering; their write counts gate notifications after commit.
+Concurrent/repeated requests and overlapping approval/direct cancellation calls
+schedule at most one message for each actual transition. A new request after a
+rejection is a new transition and may notify the administrator again. Existing
+HTTP status codes, response shapes, authentication and CSRF checks are unchanged.
+No migrations, dependencies, frontend changes or notification channels are added.
+
+Missing/blank token or destination skips that notification. Telegram and scheduling
+failures cannot change successful API responses or committed D1 state. Logs contain
+only fixed failure text, never credentials, chat IDs, private reasons or names.
+Delivery remains best effort: there is no outbox, queue, retry or recovery after a
+crash between commit and scheduling. Network failure can also leave delivery
+uncertain. Replaying an operation does not resend its notification, even if the
+original delivery failed. Telegram acceptance does not guarantee a person read it.
+
+### Local owner verification
+
+1. Apply local migrations with `npm run db:migrate:local`. In `.dev.vars`, set the
+   bot token, `TELEGRAM_GROUP_CHAT_ID` to the dedicated **test group**, and
+   `TELEGRAM_ADMIN_CHAT_ID` to your private admin chat. Start/open the bot in the
+   private chat first. Keep real residents' chat IDs out of local testing.
+   Use `npm run telegram:test -- admin` and `npm run telegram:test -- group`
+   for explicit connectivity tests if needed.
+2. Start `npm run dev:worker` and `npm run dev`. Create a future booking, then
+   request cancellation with an explanation containing `<`, `>`, `&` and quotes.
+   Confirm one private admin message with literal text, the right date, time and
+   name/apartment. Confirm the test group receives no cancellation reason.
+   The existing new-booking notification is expected when creating the booking.
+3. Repeat the cancellation request POST: expect 409 and no additional private
+   message. Log in at `/admin`, approve the request, and confirm one group message
+   stating the interval is available again. Repeat approval and direct cancellation
+   of the same booking: expect their existing responses and no additional message.
+4. Create another booking/request, reject it and confirm no group notification and
+   that the booking stays active. Directly cancel it afterward: confirm one group
+   notification without any private details. Also directly cancel a booking with
+   a pending request; the request becomes approved and only one group message is sent.
+5. Local HTTP `ADMIN_ORIGIN` omits both links. Verify `/admin` and `/` links only
+   with a valid public HTTPS frontend origin configured for your test setup; links
+   never come from request headers. Do not change production settings for this test.
+6. Restart with a missing token/admin/group destination and confirm the relevant
+   operation still succeeds without delivery. A deliberately invalid test token
+   should log a fixed failure message while preserving the request/cancellation.
+   Restore `.dev.vars` afterward. Repeated operations must not resend.
+
+Automated tests use mocked Telegram fetches and ephemeral local D1, without live
+Telegram messages. They cover concurrency across both paths, repeated operations,
+rejection, validation/conflicts, rollback, authorization/CSRF, configuration absence,
+delivery/scheduling failure isolation, HTML escaping and group privacy. Browser and
+live test-group verification remain owner checks; no production deployment is needed.

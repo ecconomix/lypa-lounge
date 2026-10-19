@@ -1,3 +1,4 @@
+import type { CancellationNotification } from './telegramMessages.ts'
 import { bookingControls } from './bookingControls.ts'
 import { cancellationReview } from './cancellationReview.ts'
 
@@ -148,6 +149,7 @@ async function verifyPassword(
 export async function admin(
   request: Request,
   env: AdminEnv,
+  onCancelled?: (reservation: CancellationNotification) => void,
 ): Promise<Response> {
   // Do not log exception objects here: auth inputs and tokens must stay private.
   try {
@@ -280,7 +282,7 @@ export async function admin(
         path,
       )
     )
-      return await bookingControls(request, env.DB)
+      return await bookingControls(request, env.DB, onCancelled)
     if (path === '/api/admin/cancellation-requests')
       return await cancellationReview(request, env.DB)
     const review =
@@ -288,7 +290,13 @@ export async function admin(
         path,
       )
     if (review)
-      return await cancellationReview(request, env.DB, review[1], review[2])
+      return await cancellationReview(
+        request,
+        env.DB,
+        review[1],
+        review[2],
+        onCancelled,
+      )
     return reply(404, { error: 'Not found' })
   } catch {
     return reply(500, { error: 'Authentication unavailable' })

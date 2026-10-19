@@ -3,7 +3,11 @@ import { availability } from './availability.ts'
 import { reservations } from './reservations.ts'
 import { cancellationRequests } from './cancellationRequests.ts'
 import { createTelegramClient, type TelegramEnv } from './telegram.ts'
-import { formatBookingNotification } from './telegramMessages.ts'
+import {
+  formatBookingNotification,
+  formatCancellationNotification,
+  formatCancellationRequestNotification,
+} from './telegramMessages.ts'
 
 export default {
   async fetch(
@@ -13,9 +17,26 @@ export default {
   ): Promise<Response> {
     try {
       const { pathname } = new URL(request.url)
+      const notifyCancellation = (
+        chatId: string | undefined,
+        text: () => string,
+      ) => {
+        if (!ctx || !env.TELEGRAM_BOT_TOKEN?.trim() || !chatId?.trim()) return
+        const task = createTelegramClient(env.TELEGRAM_BOT_TOKEN)
+          .sendMessage(chatId, text(), { parseMode: 'HTML' })
+          .catch(() => {
+            // Fixed text only: no credentials, destinations or private data.
+            console.error('Telegram cancellation notification failed')
+          })
+        ctx.waitUntil(task)
+      }
 
       if (pathname === '/api/admin' || pathname.startsWith('/api/admin/')) {
-        return await admin(request, env)
+        return await admin(request, env, (reservation) => {
+          notifyCancellation(env.TELEGRAM_GROUP_CHAT_ID, () =>
+            formatCancellationNotification(reservation, env.ADMIN_ORIGIN),
+          )
+        })
       }
 
       if (pathname === '/api/reservations') {
@@ -53,7 +74,16 @@ export default {
       const cancellation =
         /^\/api\/reservations\/([^/]+)\/cancellation-requests$/.exec(pathname)
       if (cancellation) {
-        return await cancellationRequests(request, env.DB, cancellation[1])
+        return await cancellationRequests(
+          request,
+          env.DB,
+          cancellation[1],
+          (created) => {
+            notifyCancellation(env.TELEGRAM_ADMIN_CHAT_ID, () =>
+              formatCancellationRequestNotification(created, env.ADMIN_ORIGIN),
+            )
+          },
+        )
       }
 
       if (pathname === '/api/availability') {
