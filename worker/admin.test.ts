@@ -15,7 +15,12 @@ beforeAll(async () => {
     remoteBindings: false,
   })
   env = { ...platform.env, ADMIN_PASSWORD: password, ADMIN_ORIGIN: origin }
-  for (const file of ['0001_create_reservations.sql', '0002_admin_auth.sql']) {
+  for (const file of [
+    '0001_create_reservations.sql',
+    '0002_admin_auth.sql',
+    '0003_cancellation_requests.sql',
+    '0004_reservation_kind.sql',
+  ]) {
     const migration = await readFile(
       new NodeURL(`../migrations/${file}`, import.meta.url),
       'utf8',

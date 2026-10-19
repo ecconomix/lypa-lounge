@@ -25,10 +25,18 @@ beforeAll(async () => {
     remoteBindings: false,
   })
   env = platform.env
-  const migration = await readFile(
-    new NodeURL('../migrations/0001_create_reservations.sql', import.meta.url),
-    'utf8',
-  )
+  const migration =
+    (await readFile(
+      new NodeURL(
+        '../migrations/0001_create_reservations.sql',
+        import.meta.url,
+      ),
+      'utf8',
+    )) +
+    (await readFile(
+      new NodeURL('../migrations/0004_reservation_kind.sql', import.meta.url),
+      'utf8',
+    ))
   for (const sql of migration
     .replace(/--[^\n]*/g, '')
     .split(';')

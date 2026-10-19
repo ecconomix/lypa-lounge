@@ -74,7 +74,7 @@ export async function cancellationRequests(
         .prepare(
           `INSERT INTO cancellation_requests (id, reservation_id, reason, created_at)
         SELECT ?, id, ?, ? FROM reservations
-        WHERE id = ? AND status = 'active' AND (date > ? OR (date = ? AND end_time > ?))
+        WHERE id = ? AND kind = 'booking' AND status = 'active' AND (date > ? OR (date = ? AND end_time > ?))
         ON CONFLICT(reservation_id) WHERE status = 'pending' DO NOTHING`,
         )
         .bind(

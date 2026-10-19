@@ -661,3 +661,97 @@ Manual browser checklist (local Worker/Vite, migrations applied):
 9. Verify processed requests remain absent and the booking state persists.
 10. Log out; verify direct queue GET and both review POSTs are denied without a
     session (POST checks use the correct Origin and JSON Content-Type).
+
+## M3.4 — Admin booking controls
+
+`/admin` retains cancellation review and adds active booking controls and technical
+blocks. Lists include every active row, ordered by Kyiv date/time (including past
+rows still marked active); there is no polling. Name/apartment remains the existing
+combined field, rather than introducing separate personal-data fields.
+
+Migration `0004_reservation_kind.sql` adds `kind` (`booking` or `block`) to
+`reservations`, defaulting existing rows to `booking`. Apply locally with
+`npm run db:migrate:local`. Blocks reuse `worker/reservations.ts` normalization,
+Kyiv 31-day horizon, 08:00–22:00 half-hour boundaries, consumed UUID idempotency
+keys, and **the same atomic conditional insert** as public bookings. Both kinds
+participate in its overlap predicate, so concurrent writes cannot occupy the same
+time. Adjacent ranges are allowed. Blocks store their optional internal reason in
+`description` (trimmed, maximum 1000 UTF-16 units).
+
+Protected endpoints (existing session cookie, no-store responses):
+
+| Method | Endpoint                             | Behavior                                                                             |
+| ------ | ------------------------------------ | ------------------------------------------------------------------------------------ |
+| GET    | `/api/admin/reservations`            | Active bookings with existing name/apartment and description                         |
+| POST   | `/api/admin/reservations/:id/cancel` | Soft-cancel; atomically approve any pending cancellation request                     |
+| GET    | `/api/admin/blocks`                  | Active blocks, internal description and UTC Unix creation timestamp                  |
+| POST   | `/api/admin/blocks`                  | Create from `{ date, startTime, endTime, reason? }`; requires UUID `Idempotency-Key` |
+| DELETE | `/api/admin/blocks/:id`              | Soft-cancel a block                                                                  |
+
+All mutations reuse the configured Origin and JSON content-type CSRF guard,
+including DELETE (`{}` body). Repeated cancellation/removal returns 200 without
+changing timestamps; missing or wrong-kind IDs return 404. No booking payload,
+consumed key, or history is deleted. Manual cancellation and pending-request
+resolution share a D1 transaction and roll back together. Existing approved and
+rejected reviews remain unchanged.
+
+Public availability keeps the existing booking representation. Blocks appear as
+`Технічне блокування`, with null description and `isTechnicalBlock: true`; their
+reasons are never exposed publicly. Public cancellation requests cannot target
+blocks, and the public UI omits that control. Existing public booking fields remain
+unchanged. Admin mutations refresh both booking/block lists and cancellation
+review; confirmed success remains visible if refresh fails. Uncertain block
+creation retries reuse the UUID for an identical form payload while mounted.
+
+Files: `worker/bookingControls.ts` and its integration tests implement controls;
+`worker/admin.ts` routes them; `worker/reservations.ts` shares insertion;
+`worker/availability.ts` and `worker/cancellationRequests.ts` protect block privacy
+and eligibility. Existing Worker integration suites now apply migration 0004.
+`src/api/admin.ts`, `BookingControls.tsx` and its tests provide the admin form/lists;
+`AdminPage.tsx`, `CancellationReview.tsx` coordinate refresh; `AdminPage.css` styles
+the form. `src/types/reservation.ts`, `src/api/reservations.ts`, `BookingList.tsx`
+and its test carry the public block marker. `AdminPage.test.tsx` covers the expanded
+page. No dependencies, external services, or deployment changes were added.
+
+### M3.4 automated verification
+
+Use Node 24 (`nvm use`, or select an installed Node 24 binary). Node 18 cannot run
+the installed Vite/Vitest tools. Run `npm run format` before final checks, then
+`npm test`, `npm run typecheck`, `npm run build`, `npm run lint`, and
+`npm run format:check`. D1 integration tests need permission to bind localhost
+sockets; all bindings are ephemeral/local with remote bindings disabled.
+
+The existing `.dev.vars` issue documented under M3.2 still reproduces: plain
+`npm run typecheck` generates required secret fields in `Env`, conflicting with
+existing optional/missing-secret test fixtures. Do not edit or expose secrets.
+Use the documented alternative to verify frontend, Vite, Worker and test types:
+
+```sh
+npm run types:worker -- --env-file /dev/null
+npm exec tsc -- -b
+npm exec tsc -- -p worker/tsconfig.worker.json
+npm exec tsc -- -p worker/tsconfig.test.json
+```
+
+In a restricted filesystem, `WRANGLER_LOG_PATH=/tmp/lypa-wrangler.log` keeps
+Wrangler logs in a writable directory. These alternatives do not change runtime
+configuration. No browser testing is performed by the agent.
+
+### M3.4 owner browser checklist
+
+1. Apply local migrations, start the local Worker/Vite apps, sign in at `/admin`,
+   and confirm bookings show date, time, name/apartment and description.
+2. Cancel a booking after confirmation; repeat with a pending cancellation request
+   and verify that request disappears from the review queue. Check declining the
+   confirmation leaves the booking unchanged.
+3. Return to the public page and confirm the cancelled interval is available.
+4. Create a future technical block with a private reason; verify its admin listing
+   and that public availability shows a generic block with no reason or cancel form.
+5. Attempt to book that interval (including from a stale public page); expect a conflict.
+6. Remove the block with confirmation and verify it disappears from active blocks.
+7. Book the newly available interval successfully.
+8. Try booking/block and block/block overlaps, invalid or reversed ranges, and
+   adjacent ranges. Overlaps must fail; adjacent ranges must succeed.
+9. Reload both pages and verify persisted bookings, blocks and cancellations.
+10. Log out or expire the session; protected lists and mutations must deny access.
+    Try an absent/wrong Origin on mutations and confirm no database changes.

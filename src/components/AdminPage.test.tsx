@@ -20,9 +20,13 @@ beforeEach(() => {
   fetchMock = vi
     .fn<typeof fetch>()
     .mockImplementation(async (url) =>
-      url === '/api/admin/cancellation-requests'
-        ? Response.json({ requests: [] })
-        : Response.json({}, { status: 401 }),
+      url === '/api/admin/reservations'
+        ? Response.json({ reservations: [] })
+        : url === '/api/admin/blocks'
+          ? Response.json({ blocks: [] })
+          : url === '/api/admin/cancellation-requests'
+            ? Response.json({ requests: [] })
+            : Response.json({}, { status: 401 }),
     )
   vi.stubGlobal('fetch', fetchMock)
   host = document.createElement('div')
@@ -49,14 +53,14 @@ async function submit() {
 function fill() {
   host.querySelector('input')!.value = 'test-only-password'
 }
-test('admin route restores session, logs in and logs out using cookies without loading bookings', async () => {
+test('admin route restores session, logs in and logs out using cookies with booking controls', async () => {
   await mount()
   expect(fetchMock.mock.calls[0][0]).toBe('/api/admin/session')
   fill()
   fetchMock.mockResolvedValueOnce(authenticated())
   await submit()
   expect(host.textContent).toContain('Запити на скасування')
-  expect(host.querySelector('input')).toBeNull()
+  expect(host.querySelector('input[type="password"]')).toBeNull()
   expect(fetchMock.mock.calls[1]).toEqual([
     '/api/admin/login',
     expect.objectContaining({
@@ -68,7 +72,7 @@ test('admin route restores session, logs in and logs out using cookies without l
   await submit()
   expect(host.querySelector('input')?.type).toBe('password')
   expect(host.querySelector('input')?.value).toBe('')
-  expect(fetchMock.mock.calls[3][0]).toBe('/api/admin/logout')
+  expect(fetchMock.mock.calls.at(-1)![0]).toBe('/api/admin/logout')
   expect(localStorage.length).toBe(0)
   expect(sessionStorage.length).toBe(0)
 })

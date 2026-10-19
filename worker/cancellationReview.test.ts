@@ -23,6 +23,7 @@ beforeAll(async () => {
     '0001_create_reservations.sql',
     '0002_admin_auth.sql',
     '0003_cancellation_requests.sql',
+    '0004_reservation_kind.sql',
   ]) {
     const migration = await readFile(
       new NodeURL(`../migrations/${name}`, import.meta.url),

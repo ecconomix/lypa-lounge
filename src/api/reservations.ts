@@ -1,7 +1,10 @@
 import type { Reservation } from '../types/reservation'
 import { calendarDate, createDateRange } from '../utils/calendar'
 
-export type BookingPayload = Omit<Reservation, 'id' | 'nameOrApartment'> & {
+export type BookingPayload = Omit<
+  Reservation,
+  'id' | 'nameOrApartment' | 'isTechnicalBlock'
+> & {
   nameOrApartment: string
 }
 
@@ -47,7 +50,13 @@ function reservation(value: unknown): Reservation {
     (typeof description === 'string' && description.length > 1000)
   )
     throw new ApiError(0, 'MALFORMED_RESPONSE')
+  if (
+    value.isTechnicalBlock !== undefined &&
+    typeof value.isTechnicalBlock !== 'boolean'
+  )
+    throw new ApiError(0, 'MALFORMED_RESPONSE')
   return {
+    ...(value.isTechnicalBlock === true ? { isTechnicalBlock: true } : {}),
     id,
     date,
     startTime,

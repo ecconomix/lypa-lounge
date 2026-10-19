@@ -1,3 +1,4 @@
+import { bookingControls } from './bookingControls.ts'
 import { cancellationReview } from './cancellationReview.ts'
 
 /** Secrets are supplied by Wrangler, never by Vite or public configuration. */
@@ -274,6 +275,12 @@ export async function admin(
       if (!session) return denied()
       return reply(200, { authenticated: true, expiresAt: session.expires_at })
     }
+    if (
+      /^\/api\/admin\/(reservations|blocks)(?:\/[^/]+(?:\/cancel)?)?$/.test(
+        path,
+      )
+    )
+      return await bookingControls(request, env.DB)
     if (path === '/api/admin/cancellation-requests')
       return await cancellationReview(request, env.DB)
     const review =

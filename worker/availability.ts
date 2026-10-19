@@ -1,4 +1,5 @@
 interface PublicReservation {
+  kind: 'booking' | 'block'
   id: string
   date: string
   startTime: string
@@ -84,8 +85,9 @@ export async function availability(
   try {
     const { results } = await db
       .prepare(
-        `SELECT id, date, start_time AS startTime, end_time AS endTime,
-                name_or_apartment AS nameOrApartment, description
+        `SELECT kind, id, date, start_time AS startTime, end_time AS endTime,
+                CASE WHEN kind = 'block' THEN 'Технічне блокування' ELSE name_or_apartment END AS nameOrApartment,
+                CASE WHEN kind = 'booking' THEN description ELSE NULL END AS description
          FROM reservations
          WHERE date >= ? AND date <= ? AND status = 'active'
          ORDER BY date ASC, start_time ASC`,
@@ -93,7 +95,11 @@ export async function availability(
       .bind(params.get('from'), params.get('to'))
       .all<PublicReservation>()
 
-    return Response.json({ reservations: results })
+    return Response.json({
+      reservations: results.map(({ kind, ...row }) =>
+        kind === 'block' ? { ...row, isTechnicalBlock: true } : row,
+      ),
+    })
   } catch (error) {
     console.error('Worker request failed', error)
     return jsonError('INTERNAL_ERROR', 'Internal server error', 500)

@@ -57,3 +57,28 @@
   opacity: 0.65;
   cursor: wait;
 }
+
+.admin-block-fields {
+  border: 0;
+  padding: 0;
+  margin-block: 1rem;
+  display: grid;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.admin-block-fields textarea {
+  width: 100%;
+  min-height: 5rem;
+  padding: 0.625rem 0.75rem;
+  border: 1px solid #bac5b6;
+  border-radius: 0.5rem;
+  background: #fffefa;
+  color: #303c30;
+  font: inherit;
+  resize: vertical;
+}
+.admin-block-fields textarea:focus-visible {
+  outline: 3px solid #335b3b;
+  outline-offset: 2px;
+}

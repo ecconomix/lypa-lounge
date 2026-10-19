@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { AdminError, adminRequest } from '../api/admin'
+import BookingControls from './BookingControls'
 import CancellationReview from './CancellationReview'
 import './BookingForm.css'
 import './AdminPage.css'
 
 export default function AdminPage() {
+  const [refreshKey, setRefreshKey] = useState(0)
+  const changed = useCallback(() => setRefreshKey((value) => value + 1), [])
   const [session, setSession] = useState<{ expiresAt?: number } | null>(null)
   const [checking, setChecking] = useState(true)
   const [pending, setPending] = useState(false)
@@ -144,7 +147,18 @@ export default function AdminPage() {
         )}
       </section>
       {!checking && session && (
-        <CancellationReview onUnauthorized={unauthorized} />
+        <>
+          <CancellationReview
+            onUnauthorized={unauthorized}
+            onChanged={changed}
+            refreshKey={refreshKey}
+          />
+          <BookingControls
+            onUnauthorized={unauthorized}
+            onChanged={changed}
+            refreshKey={refreshKey}
+          />
+        </>
       )}
       <p>
         <a href="/">До бронювань</a>

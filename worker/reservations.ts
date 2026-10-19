@@ -127,6 +127,7 @@ function replay(existing: Reservation, input: ReservationInput): Response {
 export async function reservations(
   request: Request,
   db: D1Database,
+  kind: 'booking' | 'block' = 'booking',
 ): Promise<Response> {
   if (request.method !== 'POST') {
     return Response.json(
@@ -160,9 +161,9 @@ export async function reservations(
   try {
     const lookup = db
       .prepare(
-        `SELECT ${publicColumns} FROM reservations WHERE idempotency_key = ?`,
+        `SELECT ${publicColumns} FROM reservations WHERE idempotency_key = ? AND kind = ?`,
       )
-      .bind(key.toLowerCase())
+      .bind(key.toLowerCase(), kind)
     // Replay before time-sensitive checks: a consumed key survives expiry/cancellation.
     const existing = await lookup.first<Reservation>()
     if (existing) return replay(existing, input)
@@ -176,8 +177,8 @@ export async function reservations(
       db
         .prepare(
           `INSERT INTO reservations
-        (id, date, start_time, end_time, name_or_apartment, description, status, idempotency_key, created_at, updated_at)
-        SELECT ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?
+        (id, date, start_time, end_time, name_or_apartment, description, status, idempotency_key, created_at, updated_at, kind)
+        SELECT ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?
         WHERE NOT EXISTS (
           SELECT 1 FROM reservations WHERE date = ? AND status = 'active'
           AND start_time < ? AND end_time > ?
@@ -194,6 +195,7 @@ export async function reservations(
           key.toLowerCase(),
           timestamp,
           timestamp,
+          kind,
           input.date,
           input.endTime,
           input.startTime,

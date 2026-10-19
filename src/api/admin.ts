@@ -116,3 +116,75 @@ export async function reviewCancellation(
   )
     throw new Error('Invalid review response')
 }
+
+export interface AdminReservation {
+  id: string
+  date: string
+  startTime: string
+  endTime: string
+  nameOrApartment: string
+  description: string | null
+  createdAt: number
+}
+
+export interface BlockPayload {
+  date: string
+  startTime: string
+  endTime: string
+  reason: string
+}
+
+export async function fetchBookingControls(signal: AbortSignal): Promise<{
+  reservations: AdminReservation[]
+  blocks: AdminReservation[]
+}> {
+  const lists = await Promise.all(
+    ['reservations', 'blocks'].map(async (collection) => {
+      const response = await fetch(`/api/admin/${collection}`, {
+        credentials: 'same-origin',
+        cache: 'no-store',
+        signal,
+      })
+      if (!response.ok) throw new AdminError(response.status)
+      const body = (await response.json()) as Record<string, unknown>
+      const rows = body?.[collection]
+      if (
+        !Array.isArray(rows) ||
+        rows.some(
+          (row) =>
+            !row ||
+            !['id', 'date', 'startTime', 'endTime', 'nameOrApartment'].every(
+              (key) => typeof row[key] === 'string',
+            ) ||
+            !(
+              row.description === null || typeof row.description === 'string'
+            ) ||
+            typeof row.createdAt !== 'number' ||
+            !Number.isFinite(row.createdAt),
+        )
+      )
+        throw new Error('Invalid booking list')
+      return rows as AdminReservation[]
+    }),
+  )
+  return { reservations: lists[0], blocks: lists[1] }
+}
+
+export async function mutateBookingControl(
+  path: string,
+  method: 'POST' | 'DELETE',
+  payload?: BlockPayload,
+  key?: string,
+): Promise<void> {
+  const response = await fetch(`/api/admin/${path}`, {
+    method,
+    credentials: 'same-origin',
+    cache: 'no-store',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(key ? { 'Idempotency-Key': key } : {}),
+    },
+    body: JSON.stringify(payload ?? {}),
+  })
+  if (!response.ok) throw new AdminError(response.status)
+}

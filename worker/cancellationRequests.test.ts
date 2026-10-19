@@ -18,6 +18,7 @@ beforeAll(async () => {
     '0001_create_reservations.sql',
     '0002_admin_auth.sql',
     '0003_cancellation_requests.sql',
+    '0004_reservation_kind.sql',
   ]) {
     const migration = await readFile(
       new NodeURL(`../migrations/${name}`, import.meta.url),
@@ -76,7 +77,8 @@ const availability = () =>
     .then((r) => r.json())
 
 test('stores a trimmed private request with UTC timestamps; reservation and availability stay unchanged', async () => {
-  const before = await env.DB.prepare('SELECT * FROM reservations').all()
+  const before = (await env.DB.prepare('SELECT * FROM reservations').all())
+    .results
   const available = await availability()
   const response = await request({ reason: `  ${reason}\n ` })
   expect(response.status).toBe(201)
@@ -91,9 +93,9 @@ test('stores a trimmed private request with UTC timestamps; reservation and avai
     created_at: Math.floor(Date.now() / 1000),
     reviewed_at: null,
   })
-  expect(await env.DB.prepare('SELECT * FROM reservations').all()).toEqual(
-    before,
-  )
+  expect(
+    (await env.DB.prepare('SELECT * FROM reservations').all()).results,
+  ).toEqual(before)
   expect(await availability()).toEqual(available)
   const booking = await worker.fetch(
     new Request('http://localhost/api/reservations', {

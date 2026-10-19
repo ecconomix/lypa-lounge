@@ -8,8 +8,12 @@ import {
 
 export default function CancellationReview({
   onUnauthorized,
+  onChanged,
+  refreshKey = 0,
 }: {
   onUnauthorized: () => void
+  onChanged?: () => void
+  refreshKey?: number
 }) {
   const [requests, setRequests] = useState<PendingCancellation[]>([])
   const [loading, setLoading] = useState(true)
@@ -46,7 +50,7 @@ export default function CancellationReview({
         if (!controller.signal.aborted) setLoading(false)
       })
     return () => controller.abort()
-  }, [revision, onUnauthorized])
+  }, [revision, refreshKey, onUnauthorized])
 
   async function review(
     row: PendingCancellation,
@@ -73,6 +77,7 @@ export default function CancellationReview({
           ? 'Скасування схвалено. Час звільнено.'
           : 'Запит відхилено. Бронювання залишається активним.',
       )
+      onChanged?.()
       setLoading(true)
       setRevision((value) => value + 1)
     } catch (failure) {

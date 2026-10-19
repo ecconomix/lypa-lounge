@@ -55,10 +55,12 @@ export default function BookingList({
                 )}
               </div>
               <span className="booking-status">Зайнято</span>
-              <CancellationRequestForm
-                reservationId={booking.id}
-                onRefresh={onRefresh}
-              />
+              {!booking.isTechnicalBlock && (
+                <CancellationRequestForm
+                  reservationId={booking.id}
+                  onRefresh={onRefresh}
+                />
+              )}
             </li>
           ))}
         </ul>
