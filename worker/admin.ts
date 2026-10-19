@@ -1,3 +1,5 @@
+import { cancellationReview } from './cancellationReview.ts'
+
 /** Secrets are supplied by Wrangler, never by Vite or public configuration. */
 export interface AdminEnv {
   DB: D1Database
@@ -272,6 +274,14 @@ export async function admin(
       if (!session) return denied()
       return reply(200, { authenticated: true, expiresAt: session.expires_at })
     }
+    if (path === '/api/admin/cancellation-requests')
+      return await cancellationReview(request, env.DB)
+    const review =
+      /^\/api\/admin\/cancellation-requests\/([^/]+)\/(approve|reject)$/.exec(
+        path,
+      )
+    if (review)
+      return await cancellationReview(request, env.DB, review[1], review[2])
     return reply(404, { error: 'Not found' })
   } catch {
     return reply(500, { error: 'Authentication unavailable' })

@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { AdminError, adminRequest } from '../api/admin'
+import CancellationReview from './CancellationReview'
 import './BookingForm.css'
 import './AdminPage.css'
 
@@ -60,6 +61,11 @@ export default function AdminPage() {
     return () => window.clearTimeout(timeout)
   }, [session])
 
+  const unauthorized = useCallback(() => {
+    setSession(null)
+    setError('Сесію завершено. Увійдіть ще раз.')
+  }, [])
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (busy.current) return
@@ -116,9 +122,7 @@ export default function AdminPage() {
               </p>
             )}
             <form onSubmit={(event) => void submit(event)}>
-              {session ? (
-                <p>Керування бронюваннями з’явиться згодом.</p>
-              ) : (
+              {!session && (
                 <label>
                   Пароль адміністратора
                   <input
@@ -139,6 +143,9 @@ export default function AdminPage() {
           </>
         )}
       </section>
+      {!checking && session && (
+        <CancellationReview onUnauthorized={unauthorized} />
+      )}
       <p>
         <a href="/">До бронювань</a>
       </p>

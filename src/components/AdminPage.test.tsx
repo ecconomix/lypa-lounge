@@ -19,7 +19,11 @@ beforeEach(() => {
   vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
   fetchMock = vi
     .fn<typeof fetch>()
-    .mockResolvedValue(Response.json({}, { status: 401 }))
+    .mockImplementation(async (url) =>
+      url === '/api/admin/cancellation-requests'
+        ? Response.json({ requests: [] })
+        : Response.json({}, { status: 401 }),
+    )
   vi.stubGlobal('fetch', fetchMock)
   host = document.createElement('div')
   document.body.append(host)
@@ -51,7 +55,7 @@ test('admin route restores session, logs in and logs out using cookies without l
   fill()
   fetchMock.mockResolvedValueOnce(authenticated())
   await submit()
-  expect(host.textContent).toContain('Керування бронюваннями')
+  expect(host.textContent).toContain('Запити на скасування')
   expect(host.querySelector('input')).toBeNull()
   expect(fetchMock.mock.calls[1]).toEqual([
     '/api/admin/login',
@@ -64,7 +68,7 @@ test('admin route restores session, logs in and logs out using cookies without l
   await submit()
   expect(host.querySelector('input')?.type).toBe('password')
   expect(host.querySelector('input')?.value).toBe('')
-  expect(fetchMock.mock.calls[2][0]).toBe('/api/admin/logout')
+  expect(fetchMock.mock.calls[3][0]).toBe('/api/admin/logout')
   expect(localStorage.length).toBe(0)
   expect(sessionStorage.length).toBe(0)
 })

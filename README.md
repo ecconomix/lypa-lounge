@@ -589,3 +589,75 @@ A visitor can occupy the one pending request for a booking; administrator review
 is required to resolve it in M3.3. Form confirmation is in memory and disappears
 when navigating away/reloading; subsequent submissions remain database-protected.
 No deployment or remote resources are part of M3.2.
+
+## M3.3 — Cancellation review
+
+The existing `/admin` page lists pending cancellation requests after login.
+It shows Kyiv booking date/time, the existing combined name/apartment field,
+private explanation, and creation time in Europe/Kyiv. Approval asks for native
+browser confirmation; both actions disable review controls while processing,
+remove successful requests, refresh the list, and show Ukrainian feedback.
+A failed refresh preserves confirmed success. Use **Оновити список** to retry
+loading or see requests submitted by other visitors/processed by another admin.
+
+### Protected API contracts
+
+All routes reuse `requireAdmin`, private no-store responses, and the existing
+session cookie. POST routes require the configured Origin and JSON Content-Type;
+the frontend sends `{}` and no review payload fields are needed.
+
+- `GET /api/admin/cancellation-requests` → 200 `{ "requests": [...] }`.
+  Each pending entry contains `id`, `reservationId`, `date`, `startTime`,
+  `endTime`, `nameOrApartment`, `reason`, and UTC Unix seconds `createdAt`.
+  Entries are ordered by creation time, then ID; an empty queue returns `[]`.
+- `POST /api/admin/cancellation-requests/:id/approve` → 200
+  `{ "request": { "id": "…", "status": "approved", "reviewedAt": 123 } }`.
+- `POST /api/admin/cancellation-requests/:id/reject` → the same shape with
+  `"status": "rejected"`. `reviewedAt` is UTC Unix seconds.
+
+Errors reuse the admin `{ "error": "…" }` shape: 401 unauthenticated,
+403 Origin/transport failure, 415 non-JSON mutation, 404 missing request,
+409 opposite prior decision or pending request with inactive reservation,
+405 unsupported method (with Allow), and generic 500 database failure.
+Existing authentication configuration checks can return 503.
+
+No migration is needed. A conditional pending-request update checks that the
+reservation is active. Approval updates the reservation to `cancelled` in the
+same D1 batch transaction; SQLite `changes()` gates this update on the request
+transition. Concurrent decisions serialize in the database. Identical retries
+return the original decision without changing either timestamp; opposite retries
+return 409. Rejection leaves the reservation untouched. Failed transactions roll
+back both changes. Booking payloads, consumed idempotency keys, request history,
+and public API fields are preserved. Existing active-only availability and
+booking conflict queries automatically free approved time and retain rejected time.
+
+### Verification and limitations
+
+Focused integration tests cover authentication, CSRF, listing, both decisions,
+immutable retries, opposite decisions, competing reviews, missing/inactive rows,
+availability, safe database errors, and rollback after an injected SQLite failure.
+React DOM tests cover loading/details, empty state, approval confirmation,
+rejection, disabled actions, refresh, errors/retry, session expiry, and confirmed
+success when refresh fails. Browser testing is performed manually by the owner.
+
+Use Node 24 for the project tools. The `.dev.vars`-derived required `Env` issue
+and secret-free typecheck commands documented under M3.2 still apply; M3.3 does
+not alter type generation. No dependencies, remote resources, or deployment are
+added. The schema has one combined name/apartment field, so separate name and
+apartment values cannot be displayed. The queue refreshes on load and after a
+successful review, or manually; it has no polling or live updates. Requester
+identity remains self-reported. There are no notifications or other admin actions.
+
+Manual browser checklist (local Worker/Vite, migrations applied):
+
+1. Log in at `/admin` and verify unauthenticated visitors see the login form.
+2. Create a public cancellation request and view its private details in the queue.
+3. Reject the request; check loading controls, success feedback, and its removal.
+4. Verify the reservation remains active and overlapping booking remains blocked.
+5. Create another cancellation request for that reservation; refresh the queue.
+6. Approve it, first declining and then accepting the confirmation.
+7. Verify the calendar frees the time and a new booking can use it.
+8. Reload `/admin` and the public booking page.
+9. Verify processed requests remain absent and the booking state persists.
+10. Log out; verify direct queue GET and both review POSTs are denied without a
+    session (POST checks use the correct Origin and JSON Content-Type).

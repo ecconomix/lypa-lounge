@@ -6,3 +6,54 @@
 .admin-panel form p {
   margin: 0;
 }
+
+.admin-reviews {
+  margin-top: 1.5rem;
+}
+.admin-reviews h2 {
+  margin-top: 0;
+}
+.admin-review-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.admin-review-list li {
+  padding-block: 1rem;
+  border-top: 1px solid #d6d9cf;
+  overflow-wrap: anywhere;
+}
+.admin-review-list h3 {
+  font-size: 1rem;
+}
+.admin-review-reason {
+  white-space: pre-wrap;
+}
+.admin-review-actions {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+.admin-review-actions button {
+  flex: 1;
+}
+
+.admin-reviews button {
+  min-height: 2.75rem;
+  padding: 0.625rem 1rem;
+  border: 1px solid #335b3b;
+  border-radius: 0.75rem;
+  background: #fffefa;
+  color: #335b3b;
+  cursor: pointer;
+}
+
+.admin-review-actions button:first-child {
+  background: #335b3b;
+  color: #fffefa;
+}
+
+.admin-reviews button:disabled {
+  opacity: 0.65;
+  cursor: wait;
+}
