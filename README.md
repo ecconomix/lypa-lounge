@@ -828,12 +828,11 @@ For example:
 
 ```text
 Нове бронювання альтанки
-20.10.2026, 18:00–20:00 (Київ)
+20.10.2026, 18:00–20:00
 Квартира 12
 ```
 
-Dates and times are the booking's Europe/Kyiv civil values. The message includes
-only the date, time range and trimmed `nameOrApartment`; descriptions, internal
+The message includes only the booking date, time range and trimmed `nameOrApartment`; descriptions, internal
 IDs and idempotency keys are excluded. The D1 batch's insert count identifies a
 new row after commit, including during concurrent requests. Idempotent replays,
 validation errors, conflicts and technical blocks never trigger notifications.
@@ -857,7 +856,7 @@ Cancellation/review notifications and production deployment are outside M4.2.
 2. Run `npm run db:migrate:local`, `npm run dev:worker` and `npm run dev`.
    Create a future public booking through the UI, including a private description.
    Confirm HTTP 201, persisted availability and exactly one group message with
-   Kyiv date/time and name/apartment. Check that the description is absent.
+   date/time and name/apartment. Check that the description is absent.
 3. In browser developer tools, copy that POST as fetch and repeat it with its
    original JSON and `Idempotency-Key`. Confirm the same HTTP 201/reservation
    and no second notification. Change its name with the same key; expect 409

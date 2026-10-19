@@ -29,7 +29,7 @@ export default {
           const notification = createTelegramClient(env.TELEGRAM_BOT_TOKEN)
             .sendMessage(
               env.TELEGRAM_GROUP_CHAT_ID,
-              `Нове бронювання альтанки\n${date}, ${booking.startTime}–${booking.endTime} (Київ)\n${booking.nameOrApartment}`,
+              `Нове бронювання альтанки\n${date}, ${booking.startTime}–${booking.endTime}\n${booking.nameOrApartment}`,
             )
             .catch(() => {
               // Never log errors, credentials, destinations or booking data.

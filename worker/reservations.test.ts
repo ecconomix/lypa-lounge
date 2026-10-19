@@ -147,7 +147,7 @@ test('committed booking schedules exactly one concise Ukrainian plain-text notif
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         chat_id: 'test-only-group',
-        text: 'Нове бронювання альтанки\n20.10.2026, 18:00–20:00 (Київ)\nКвартира 12',
+        text: 'Нове бронювання альтанки\n20.10.2026, 18:00–20:00\nКвартира 12',
       }),
       redirect: 'error',
     },
