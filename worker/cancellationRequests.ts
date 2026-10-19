@@ -1,3 +1,8 @@
+import type {
+  BookingNotification,
+  CancellationRequestNotification,
+} from './telegramMessages.ts'
+
 function error(code: string, message: string, status: number): Response {
   return Response.json({ error: { code, message } }, { status })
 }
@@ -6,6 +11,7 @@ export async function cancellationRequests(
   request: Request,
   db: D1Database,
   reservationId: string,
+  onCreated?: (request: CancellationRequestNotification) => void,
 ): Promise<Response> {
   if (request.method !== 'POST') {
     return Response.json(
@@ -69,7 +75,7 @@ export async function cancellationRequests(
     const time = `${part('hour')}:${part('minute')}`
     // Public IDs identify a booking, never authorize cancellation. Eligibility and
     // insertion are one write; the partial unique index arbitrates concurrent POSTs.
-    const [insert, lookup] = await db.batch([
+    const [insert, lookup] = await db.batch<BookingNotification>([
       db
         .prepare(
           `INSERT INTO cancellation_requests (id, reservation_id, reason, created_at)
@@ -87,11 +93,21 @@ export async function cancellationRequests(
           time,
         ),
       db
-        .prepare('SELECT id FROM reservations WHERE id = ?')
+        .prepare(
+          `SELECT date, start_time AS startTime, end_time AS endTime,
+          name_or_apartment AS nameOrApartment FROM reservations WHERE id = ?`,
+        )
         .bind(reservationId),
     ])
-    if (insert.meta.changes === 1)
+    if (insert.meta.changes === 1) {
+      // The batch has committed; only its winning insert schedules delivery.
+      try {
+        onCreated?.({ ...lookup.results[0], reason })
+      } catch {
+        console.error('Cancellation request notification scheduling failed')
+      }
       return Response.json({ status: 'pending' }, { status: 201 })
+    }
     if (!lookup.results.length)
       return error('RESERVATION_NOT_FOUND', 'Reservation not found', 404)
     // One generic conflict avoids disclosing existing request or review details.

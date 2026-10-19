@@ -1,3 +1,8 @@
+.admin-panel,
+.admin-reviews {
+  padding: 1.25rem;
+}
+
 .admin-panel {
   max-width: 28rem;
   margin-inline: auto;
@@ -8,63 +13,101 @@
 }
 
 .admin-reviews {
+  display: grid;
+  gap: 1.25rem;
   margin-top: 1.5rem;
 }
-.admin-reviews h2 {
-  margin-top: 0;
+
+.admin-reviews > h2,
+.admin-reviews > p {
+  margin: 0;
 }
+
 .admin-review-list {
   list-style: none;
   padding: 0;
   margin: 0;
 }
+
+.admin-review-list:empty {
+  display: none;
+}
+
 .admin-review-list li {
-  padding-block: 1rem;
+  display: grid;
+  gap: 1rem;
+  padding-block: 1.25rem;
   border-top: 1px solid #d6d9cf;
   overflow-wrap: anywhere;
 }
+
+.admin-review-list li:last-child {
+  padding-bottom: 0;
+}
+
+.admin-review-list h3,
+.admin-review-list p {
+  margin: 0;
+}
+
 .admin-review-list h3 {
   font-size: 1rem;
 }
+
 .admin-review-reason {
   white-space: pre-wrap;
 }
+
 .admin-review-actions {
   display: flex;
-  gap: 0.75rem;
+  gap: 1rem;
   flex-wrap: wrap;
 }
+
 .admin-review-actions button {
-  flex: 1;
+  flex: 0 1 auto;
 }
 
-.admin-reviews button {
+.booking-form.admin-panel button,
+.booking-form.admin-reviews button {
+  justify-self: start;
+  max-width: 100%;
   min-height: 2.75rem;
-  padding: 0.625rem 1rem;
+  padding: 0.5rem 0.875rem;
   border: 1px solid #335b3b;
   border-radius: 0.75rem;
   background: #fffefa;
   color: #335b3b;
+  font-size: 0.875rem;
+  line-height: 1.5;
   cursor: pointer;
 }
 
+.admin-panel button[type='submit'],
+.admin-reviews button[type='submit'],
 .admin-review-actions button:first-child {
   background: #335b3b;
   color: #fffefa;
 }
 
+.admin-panel button:disabled,
 .admin-reviews button:disabled {
   opacity: 0.65;
   cursor: wait;
 }
 
-.admin-block-fields {
+.admin-reviews .admin-block-fields {
   border: 0;
   padding: 0;
-  margin-block: 1rem;
+  margin: 0;
   display: grid;
-  gap: 0.75rem;
+  gap: 1rem;
   min-width: 0;
+}
+
+.admin-block-fields legend {
+  padding: 0 0 0.75rem;
+  font-weight: 600;
 }
 
 .admin-block-fields textarea {
@@ -76,9 +119,31 @@
   background: #fffefa;
   color: #303c30;
   font: inherit;
+  font-weight: 400;
   resize: vertical;
 }
+
 .admin-block-fields textarea:focus-visible {
   outline: 3px solid #335b3b;
   outline-offset: 2px;
+}
+
+@media (hover: hover) {
+  .admin-panel button:hover:not(:disabled),
+  .admin-reviews button:hover:not(:disabled) {
+    background: #e4eddf;
+  }
+
+  .admin-panel button[type='submit']:hover:not(:disabled),
+  .admin-reviews button[type='submit']:hover:not(:disabled),
+  .admin-review-actions button:first-child:hover:not(:disabled) {
+    background: #28472e;
+  }
+}
+
+@media (min-width: 768px) {
+  .admin-panel,
+  .admin-reviews {
+    padding: 1.5rem;
+  }
 }

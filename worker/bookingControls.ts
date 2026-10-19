@@ -1,3 +1,4 @@
+import type { CancellationNotification } from './telegramMessages.ts'
 import { reservations } from './reservations.ts'
 
 function reply(status: number, body: unknown): Response {
@@ -11,6 +12,7 @@ function reply(status: number, body: unknown): Response {
 export async function bookingControls(
   request: Request,
   db: D1Database,
+  onCancelled?: (reservation: CancellationNotification) => void,
 ): Promise<Response> {
   const path = new URL(request.url).pathname
   const route =
@@ -102,16 +104,30 @@ export async function bookingControls(
     statements.push(
       db
         .prepare(
-          'SELECT id, status FROM reservations WHERE id = ? AND kind = ?',
+          `SELECT id, status, date, start_time AS startTime, end_time AS endTime
+          FROM reservations WHERE id = ? AND kind = ?`,
         )
         .bind(id, kind),
     )
     // Transaction also serializes public cancellation requests and admin reviews.
     // Repeats leave timestamps, original payload, and consumed keys unchanged.
-    const results = await db.batch(statements)
+    const results = await db.batch<
+      CancellationNotification & { id: string; status: string }
+    >(statements)
     const row = results.at(-1)!.results[0]
+    if (row && kind === 'booking' && results[0].meta.changes === 1) {
+      try {
+        onCancelled?.({
+          date: row.date,
+          startTime: row.startTime,
+          endTime: row.endTime,
+        })
+      } catch {
+        console.error('Cancellation notification scheduling failed')
+      }
+    }
     return row
-      ? reply(200, { reservation: row })
+      ? reply(200, { reservation: { id: row.id, status: row.status } })
       : reply(404, { error: 'Not found' })
   } catch {
     return reply(500, { error: 'Booking controls unavailable' })
