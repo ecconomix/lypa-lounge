@@ -16,12 +16,14 @@
     "ip": "127.0.0.1",
     "port": 8787,
   },
+  "vars": {
+    "ADMIN_ORIGIN": "https://lypa-lounge-api.oakforge.workers.dev",
+  },
   "d1_databases": [
     {
       "binding": "DB",
       "database_name": "lypa-lounge-db",
-      // Local-only placeholder. Replace with the real UUID after provisioning.
-      "database_id": "00000000-0000-0000-0000-000000000000",
+      "database_id": "d7326c84-e12d-4ad1-a724-5783eca1a44f",
       "migrations_dir": "migrations",
     },
   ],
